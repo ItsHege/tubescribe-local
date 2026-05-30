@@ -2,6 +2,8 @@
 
 Local-first YouTube caption transcription tool that saves Markdown transcripts into a searchable knowledge library.
 
+Current version: `v0.1.0`
+
 The app fetches available YouTube subtitles or automatic captions through `yt-dlp`, writes Markdown as the primary artifact, creates TXT/JSON/SRT/VTT sidecar files, and maintains a local `library.json` index for agents and repeat use.
 
 ## Features
@@ -61,6 +63,20 @@ On Windows you can also run:
 ```powershell
 .\start-tool.bat
 ```
+
+## Using The Web UI
+
+The app opens as a local browser workspace with three main tabs:
+
+- `Transcribe`: paste a YouTube URL, optionally check caption tracks, adjust advanced options, and generate Markdown/TXT/JSON/SRT/VTT outputs.
+- `Batch`: paste several video URLs, run them sequentially, pause or resume between videos, cancel queued items, optionally expand playlists, and download completed files as a ZIP.
+- `Library`: search saved transcripts, filter by topics/tags/channels/language, preview Markdown, open source YouTube links, download sidecar files, generate Study Guides, and classify topics with a selected AI engine.
+
+Use the gear button in the top-right corner to configure output folder, batch limit, default transcript options, and optional OpenAI-compatible model profiles. API models are only used when you explicitly select them for Study Guide or Topic Classification actions.
+
+The UI also includes a dark-mode toggle, keyboard shortcut help, and a command palette entry point in the top bar.
+
+Screenshots are intentionally not committed yet. Public screenshots should use demo or placeholder data, not real local transcript titles.
 
 ## Settings
 

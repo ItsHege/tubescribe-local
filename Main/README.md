@@ -2,6 +2,8 @@
 
 A simple local web tool for fetching YouTube subtitles or automatic captions and saving them as a Markdown transcript. TXT, JSON, SRT, and VTT sidecar files are created next to the Markdown file.
 
+Current version: `v0.1.0`
+
 ## Start
 
 1. Run `start-tool.bat`.
@@ -15,6 +17,16 @@ To choose a specific caption track, click `Check Captions`, select a track, then
 For several individual video URLs, use the `Batch` queue. Batch now runs on the local backend, exposes a job status, can pause/resume between videos, can optionally expand playlists, and can download completed results as a ZIP.
 
 If automatic topic assignment is wrong, choose a topic in the `Topic` field before transcribing. The new transcript will be written into that topic folder under the configured output folder.
+
+## Web UI
+
+The browser UI is organized as a local workspace:
+
+- `Transcribe`: single-video caption workflow with caption-track checking, topic override, time range, paragraph mode, timestamps, metadata, and study notes.
+- `Batch`: sequential multi-URL queue with pause/resume between videos, queued-item cancel, optional playlist expansion, persisted job history, and ZIP download.
+- `Library`: searchable transcript library with topic/tag multi-select filters, source links, preview/copy, sidecar downloads, Study Guide generation, and topic classification.
+
+The top-right controls include dark mode, keyboard shortcuts, command palette access, and the Settings gear. Settings stores local output/profile preferences in `local_settings.json`, which is ignored by git.
 
 ## How Transcribe Works
 
