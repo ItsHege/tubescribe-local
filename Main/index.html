@@ -1,295 +1,1046 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>TubeScribe Local</title>
-    <link rel="stylesheet" href="static/app.css">
+    <link rel="stylesheet" href="/static/app.css">
+    <style>
+        /* =========================================================
+           Palette refresh, dark mode, smaller radii.
+           Overrides app.css :root vars (defined later = wins)
+           ========================================================= */
+        :root[data-theme="light"] {
+            --bg: #fafaf9;
+            --panel: #ffffff;
+            --line: #e7e5e4;
+            --ink: #1c1917;
+            --muted: #78716c;
+            --muted-strong: #57534e;
+            --accent: #ea580c;
+            --accent-dark: #c2410c;
+            --accent-soft: #fff7ed;
+            --accent-border: #fed7aa;
+            --ok: #166534;
+            --ok-soft: #f0fdf4;
+            --ok-border: #bbf7d0;
+            --warn: #92400e;
+            --warn-soft: #fffbeb;
+            --warn-border: #fde68a;
+            --error: #991b1b;
+            --error-soft: #fef2f2;
+            --error-border: #fecaca;
+            --shadow: 0 1px 3px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.05);
+            --shadow-lg: 0 12px 40px rgba(0,0,0,.12);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --surface-hover: #f5f5f4;
+        }
+        :root[data-theme="dark"] {
+            --bg: #0a0a0a;
+            --panel: #171717;
+            --line: #292524;
+            --ink: #fafaf9;
+            --muted: #a8a29e;
+            --muted-strong: #d6d3d1;
+            --accent: #fb923c;
+            --accent-dark: #f97316;
+            --accent-soft: #2a1607;
+            --accent-border: #7c2d12;
+            --ok: #4ade80;
+            --ok-soft: #052e16;
+            --ok-border: #166534;
+            --warn: #fbbf24;
+            --warn-soft: #1c1404;
+            --warn-border: #78350f;
+            --error: #fca5a5;
+            --error-soft: #1c0a0a;
+            --error-border: #7f1d1d;
+            --shadow: 0 1px 3px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.5);
+            --shadow-lg: 0 12px 40px rgba(0,0,0,.6);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --surface-hover: #1f1d1c;
+        }
+
+        html, body { background: var(--bg); color: var(--ink); }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+            background: var(--bg);
+        }
+
+        .page { gap: 14px; }
+        .page, .panel, .tab-panel, .library, .library-controls, .meta-grid {
+            min-width: 0;
+        }
+        .library-controls {
+            grid-template-columns: minmax(180px, 1.5fr) minmax(180px, 1.5fr) repeat(4, minmax(110px, 1fr));
+        }
+        .library-entry {
+            grid-template-columns: 1fr;
+            gap: 14px;
+        }
+        .library-entry-body {
+            min-width: 0;
+        }
+        .library-entry-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 10px;
+            width: 100%;
+            padding-top: 12px;
+            border-top: 1px solid var(--line);
+        }
+        .library-downloads {
+            flex: 1 1 320px;
+            justify-content: flex-start;
+        }
+        .library-entry-actions > .secondary-button,
+        .library-entry-actions > button {
+            flex: 0 0 auto;
+        }
+
+        /* Force overrides on app.css elements */
+        .hero, .panel, .topbar, .modal-dialog {
+            background: var(--panel);
+            border-color: var(--line);
+            color: var(--ink);
+            box-shadow: var(--shadow);
+            border-radius: var(--radius);
+        }
+        input, textarea, select, .multi-select-trigger, .meta-card, .settings-profile, .batch-item, .library-entry, .tracks-status, .batch-status, .status, .library-status, .settings-empty, .transcribe-options {
+            border-radius: var(--radius) !important;
+            border-color: var(--line);
+        }
+        input, textarea, select { background: var(--panel); color: var(--ink); }
+        :root[data-theme="dark"] input::placeholder,
+        :root[data-theme="dark"] textarea::placeholder { color: var(--muted); }
+        .meta-card, .multi-select-trigger { background: var(--panel); }
+        :root[data-theme="dark"] .meta-card { background: #1f1d1c; }
+        :root[data-theme="dark"] .transcribe-options { background: #1f1d1c; }
+        :root[data-theme="dark"] .settings-empty { background: #1f1d1c; }
+        :root[data-theme="dark"] .batch-item { background: #1f1d1c; }
+        :root[data-theme="dark"] .library-entry { background: #1f1d1c; }
+        :root[data-theme="dark"] .settings-profile { background: #1f1d1c; border-color: var(--line); }
+        :root[data-theme="dark"] .settings-profile h3,
+        :root[data-theme="dark"] .settings-profile p,
+        :root[data-theme="dark"] .settings-profile label { color: var(--ink); }
+        :root[data-theme="dark"] .settings-key-state { color: var(--muted); }
+        :root[data-theme="dark"] .settings-active-pill {
+            background: rgba(74, 222, 128, .12);
+            color: #4ade80;
+            border-color: rgba(74, 222, 128, .35);
+        }
+        :root[data-theme="dark"] .settings-note {
+            background: rgba(251, 191, 36, .08);
+            color: #fde68a;
+            border-color: rgba(251, 191, 36, .25);
+        }
+        :root[data-theme="dark"] .multi-select-menu { background: var(--panel); }
+        :root[data-theme="dark"] .modal-backdrop { background: rgba(0,0,0,.72); }
+        :root[data-theme="dark"] .download-link { background: #2a2624; color: var(--ink); }
+        :root[data-theme="dark"] .secondary-button { background: var(--panel); color: var(--ink); }
+        :root[data-theme="dark"] .settings-button { background: var(--panel); color: var(--ink); }
+        :root[data-theme="dark"] .tracks-status,
+        :root[data-theme="dark"] .batch-status,
+        :root[data-theme="dark"] .status-idle { background: #1f1d1c; color: var(--muted); }
+        :root[data-theme="dark"] .library-status { background: #0f1a23; color: #9cb8d1; border-color: #1e3a52; }
+        :root[data-theme="dark"] .quick-hint { background: var(--accent-soft); border-color: var(--accent-border); color: #fed7aa; }
+        :root[data-theme="dark"] details.advanced { background: #1f1d1c; }
+        :root[data-theme="dark"] .study-guide-trigger { background: #1f1d1c; }
+        :root[data-theme="dark"] .tag { background: #052e16; color: #86efac; }
+        :root[data-theme="dark"] .library-downloads a { background: #0a1f1a; color: #86efac; border-color: #166534; }
+        :root[data-theme="dark"] .stage-step.is-pending { color: var(--muted); }
+
+        h1, h2, h3, p, label { color: var(--ink); }
+        label { color: var(--muted-strong); font-weight: 600; }
+
+        button { background: var(--accent); color: #fff; font-weight: 600; }
+        button:hover { background: var(--accent-dark); transform: none; }
+        .secondary-button, .download-link {
+            background: var(--panel);
+            color: var(--ink);
+            border: 1px solid var(--line);
+            font-weight: 500;
+        }
+        .secondary-button:hover, .download-link:hover { background: var(--surface-hover); transform: none; }
+        .inline-button {
+            border-radius: 999px;
+            background: var(--panel);
+            border-color: var(--line);
+            color: var(--muted);
+        }
+
+        /* =========================================================
+           Topbar
+           ========================================================= */
+        .topbar {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; padding: 14px 18px;
+            border: 1px solid var(--line);
+        }
+        .topbar-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+        .topbar-title h1 { font-size: 20px; line-height: 1; margin: 0; font-weight: 700; letter-spacing: -0.02em; }
+        .topbar-title .badge {
+            font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+            color: var(--muted); font-weight: 700;
+            border: 1px solid var(--line); padding: 3px 8px; border-radius: 999px;
+        }
+        .topbar-actions { display: flex; align-items: center; gap: 6px; }
+        .icon-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 36px; height: 36px; padding: 0;
+            border-radius: var(--radius-sm);
+            background: transparent;
+            color: var(--ink);
+            border: 1px solid transparent;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background .12s ease, border-color .12s ease;
+        }
+        .icon-btn:hover { background: var(--surface-hover); border-color: var(--line); }
+        .version-link {
+            display: inline-flex; align-items: center; justify-content: center;
+            height: 36px; padding: 0 12px;
+            border-radius: var(--radius-sm);
+            color: var(--muted-strong);
+            border: 1px solid transparent;
+            background: transparent;
+            font-size: 13px;
+            font-weight: 700;
+            text-decoration: none;
+        }
+        .version-link:hover { background: var(--surface-hover); border-color: var(--line); color: var(--ink); }
+        .topbar .settings-button {
+            position: static; width: 36px; height: 36px;
+            border-radius: var(--radius-sm); box-shadow: none;
+            border: 1px solid transparent; background: transparent;
+            font-size: 16px;
+        }
+        .topbar .settings-button:hover { background: var(--surface-hover); border-color: var(--line); }
+
+        /* =========================================================
+           Tabs
+           ========================================================= */
+        .tabs {
+            display: flex; gap: 4px; padding: 4px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow-x: auto;
+        }
+        .tab-btn {
+            flex: 1 1 0; min-width: 110px;
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+            background: transparent;
+            color: var(--muted-strong);
+            border: 0; font-weight: 600;
+            cursor: pointer;
+            transition: background .12s ease, color .12s ease;
+        }
+        .tab-btn:hover { background: var(--surface-hover); transform: none; color: var(--ink); }
+        .tab-btn.is-active {
+            background: var(--ink);
+            color: var(--bg);
+        }
+        :root[data-theme="dark"] .tab-btn.is-active { background: var(--accent); color: #fff; }
+        .tab-btn .tab-count {
+            display: inline-block; margin-left: 6px;
+            padding: 1px 7px; border-radius: 999px;
+            background: rgba(0,0,0,.1);
+            font-size: 11px; font-weight: 700;
+        }
+        .tab-btn.is-active .tab-count { background: rgba(255,255,255,.18); color: inherit; }
+
+        .tab-panel { display: none; }
+        .tab-panel.is-active { display: grid; gap: 14px; }
+
+        /* =========================================================
+           Quick hint banner
+           ========================================================= */
+        .quick-hint {
+            padding: 12px 14px; border-radius: var(--radius);
+            background: var(--accent-soft); border: 1px solid var(--accent-border);
+            color: #9a3412; font-size: 14px;
+        }
+        .quick-hint kbd {
+            display: inline-block; padding: 1px 6px; border-radius: 5px;
+            background: var(--panel); border: 1px solid var(--line);
+            font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+            color: var(--ink);
+        }
+
+        /* =========================================================
+           Drag-and-drop visual feedback
+           ========================================================= */
+        .drop-target { transition: border-color .15s ease, background .15s ease; }
+        .drop-target.is-dragover {
+            border-color: var(--accent) !important;
+            background: var(--accent-soft) !important;
+            outline: 2px dashed var(--accent);
+            outline-offset: -4px;
+        }
+
+        /* =========================================================
+           URL input row with paste button
+           ========================================================= */
+        .form-row { grid-template-columns: minmax(0,1fr) auto auto auto; }
+        .paste-btn { width: 44px; padding: 0; font-size: 16px; }
+
+        /* =========================================================
+           Advanced details
+           ========================================================= */
+        details.advanced {
+            border: 1px solid var(--line); border-radius: var(--radius);
+            background: var(--panel); padding: 0;
+        }
+        details.advanced > summary {
+            list-style: none; cursor: pointer;
+            padding: 12px 14px; font-weight: 600; color: var(--muted-strong);
+            display: flex; align-items: center; justify-content: space-between;
+            border-radius: var(--radius);
+        }
+        details.advanced > summary::-webkit-details-marker { display: none; }
+        details.advanced > summary::after {
+            content: '▾'; color: var(--muted); transition: transform .15s ease;
+        }
+        details.advanced[open] > summary::after { transform: rotate(180deg); }
+        details.advanced > summary:hover { background: var(--surface-hover); }
+        details.advanced > .advanced-body { padding: 0 14px 14px; }
+        .time-hint { font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+
+        /* =========================================================
+           Stage progress
+           ========================================================= */
+        .stage-progress {
+            display: none; padding: 14px 16px;
+            border-radius: var(--radius); border: 1px solid var(--line);
+            background: var(--panel); margin-top: 16px;
+        }
+        .stage-progress.is-active { display: block; }
+        .stage-progress .stage-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+        .stage-step {
+            display: grid; grid-template-columns: 22px 1fr auto;
+            gap: 10px; align-items: center;
+            font-size: 14px; color: var(--ink);
+            padding: 4px 0;
+        }
+        .stage-step .stage-icon {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 20px; height: 20px; border-radius: 999px;
+            background: var(--surface-hover); color: var(--muted);
+            font-size: 12px; font-weight: 700;
+        }
+        .stage-step.is-active .stage-icon {
+            background: var(--accent); color: #fff;
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+        .stage-step.is-done .stage-icon { background: var(--ok); color: #fff; }
+        .stage-step.is-done .stage-icon::after { content: '✓'; }
+        .stage-step.is-error .stage-icon { background: var(--error); color: #fff; }
+        .stage-step.is-error .stage-icon::after { content: '!'; }
+        .stage-step.is-pending { color: var(--muted); }
+        .stage-step .stage-detail { color: var(--muted); font-size: 12px; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.55; }
+        }
+
+        /* =========================================================
+           Recently transcribed cards
+           ========================================================= */
+        .recent-row {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0,1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .recent-row:empty { display: none; }
+        .recent-card {
+            display: grid; gap: 4px; padding: 12px;
+            border: 1px solid var(--line); border-radius: var(--radius);
+            background: var(--panel); cursor: pointer;
+            transition: border-color .12s ease, background .12s ease;
+        }
+        .recent-card:hover { border-color: var(--accent); background: var(--surface-hover); }
+        .recent-card .recent-title {
+            font-weight: 600; font-size: 14px;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .recent-card .recent-meta { color: var(--muted); font-size: 12px; }
+        @media (max-width: 820px) { .recent-row { grid-template-columns: 1fr; } }
+
+        /* =========================================================
+           Transcript search bar
+           ========================================================= */
+        .transcript-search {
+            display: flex; gap: 6px; margin-top: 8px; align-items: center;
+        }
+        .transcript-search input {
+            flex: 1; padding: 8px 12px; font-size: 13px;
+        }
+        .transcript-search .match-info {
+            font-size: 12px; color: var(--muted); white-space: nowrap;
+            padding: 0 6px; font-weight: 500;
+        }
+        .transcript-search button {
+            padding: 8px 10px; font-size: 13px;
+            background: var(--panel); color: var(--ink);
+            border: 1px solid var(--line);
+        }
+        .transcript-search button:hover { background: var(--surface-hover); }
+
+        /* =========================================================
+           Batch overflow menu
+           ========================================================= */
+        .batch-actions { position: relative; display: flex; gap: 8px; align-items: center; }
+        .overflow-menu {
+            position: absolute; top: 100%; right: 0; margin-top: 4px;
+            display: none; flex-direction: column; gap: 4px;
+            padding: 6px; min-width: 180px;
+            background: var(--panel); border: 1px solid var(--line);
+            border-radius: var(--radius); box-shadow: var(--shadow-lg);
+            z-index: 18;
+        }
+        .overflow-menu.is-open { display: flex; }
+        .overflow-menu .secondary-button { text-align: left; padding: 8px 12px; border: 0; }
+        .overflow-menu .secondary-button:disabled { opacity: 0.45; cursor: not-allowed; }
+        .overflow-trigger { padding: 8px 12px; }
+
+        /* =========================================================
+           Batch counter / meta
+           ========================================================= */
+        .batch-meta {
+            display: flex; justify-content: space-between; align-items: baseline;
+            gap: 10px; margin-top: 2px;
+        }
+        .batch-counter { font-size: 12px; color: var(--muted); font-weight: 600; }
+        .batch-counter.is-over { color: var(--error); }
+
+        /* =========================================================
+           Result panel
+           ========================================================= */
+        #result-panel.inline-result { margin-top: 0; }
+        #transcript-output, #library-preview-text, #study-guide-text { min-height: 240px; }
+
+        /* =========================================================
+           AI Engine + Generate Study Guide trigger
+           ========================================================= */
+        .study-guide-trigger {
+            display: flex; align-items: end; gap: 10px;
+            flex-wrap: wrap; padding: 12px;
+            border: 1px dashed var(--line); border-radius: var(--radius);
+            background: var(--panel);
+        }
+        .study-guide-trigger .field { min-width: 200px; flex: 1 1 200px; }
+
+        /* =========================================================
+           Empty states
+           ========================================================= */
+        .empty-state {
+            padding: 32px 20px; text-align: center;
+            border: 1px dashed var(--line); border-radius: var(--radius);
+            background: var(--panel); color: var(--muted);
+        }
+        .empty-state .empty-icon {
+            font-size: 32px; margin-bottom: 10px; opacity: 0.6;
+        }
+        .empty-state .empty-title {
+            font-weight: 600; color: var(--ink); margin-bottom: 4px; font-size: 15px;
+        }
+        .empty-state .empty-sub { font-size: 13px; margin-bottom: 14px; }
+        .empty-state button { font-size: 13px; padding: 8px 14px; }
+
+        /* =========================================================
+           Toast notifications
+           ========================================================= */
+        #toast-container {
+            position: fixed; top: 20px; right: 20px; z-index: 50;
+            display: flex; flex-direction: column; gap: 8px;
+            max-width: min(360px, calc(100vw - 40px));
+            pointer-events: none;
+        }
+        .toast {
+            pointer-events: auto;
+            padding: 12px 16px; border-radius: var(--radius);
+            background: var(--panel); color: var(--ink);
+            border: 1px solid var(--line); box-shadow: var(--shadow-lg);
+            font-size: 14px;
+            display: flex; align-items: flex-start; gap: 10px;
+            animation: slide-in .2s ease-out;
+        }
+        .toast.is-success { border-left: 3px solid var(--ok); }
+        .toast.is-error { border-left: 3px solid var(--error); }
+        .toast.is-loading { border-left: 3px solid var(--warn); }
+        .toast.is-info { border-left: 3px solid var(--accent); }
+        .toast .toast-msg { flex: 1; }
+        .toast .toast-close {
+            background: transparent; color: var(--muted); border: 0;
+            padding: 0 4px; cursor: pointer; font-size: 18px;
+            line-height: 1; font-weight: 400;
+        }
+        .toast.is-leaving { animation: slide-out .25s ease-in forwards; }
+        @keyframes slide-in {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes slide-out {
+            from { opacity: 1; transform: translateX(0); }
+            to { opacity: 0; transform: translateX(20px); }
+        }
+
+        /* =========================================================
+           Command palette + shortcuts modal
+           ========================================================= */
+        .cmd-overlay {
+            position: fixed; inset: 0; z-index: 40;
+            display: none; align-items: flex-start; justify-content: center;
+            padding-top: 14vh;
+            background: rgba(0,0,0,.46); backdrop-filter: blur(4px);
+        }
+        .cmd-overlay.is-open { display: flex; }
+        .cmd-modal {
+            width: min(560px, calc(100% - 40px));
+            background: var(--panel); border: 1px solid var(--line);
+            border-radius: var(--radius); box-shadow: var(--shadow-lg);
+            overflow: hidden;
+        }
+        .cmd-input-wrap {
+            display: flex; align-items: center; gap: 8px;
+            padding: 12px 14px; border-bottom: 1px solid var(--line);
+        }
+        .cmd-input-wrap input {
+            flex: 1; border: 0; background: transparent;
+            padding: 4px 0; font-size: 15px; outline: none;
+        }
+        .cmd-list {
+            max-height: 360px; overflow-y: auto; padding: 6px;
+        }
+        .cmd-item {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 12px; border-radius: var(--radius-sm);
+            cursor: pointer; color: var(--ink); font-size: 14px;
+        }
+        .cmd-item:hover, .cmd-item.is-selected { background: var(--surface-hover); }
+        .cmd-item .cmd-icon { font-size: 16px; opacity: 0.7; width: 20px; text-align: center; }
+        .cmd-item .cmd-kbd {
+            margin-left: auto; padding: 2px 6px; border-radius: 4px;
+            background: var(--surface-hover); border: 1px solid var(--line);
+            font-family: ui-monospace, Consolas, monospace; font-size: 11px;
+            color: var(--muted);
+        }
+        .cmd-empty {
+            padding: 30px 16px; text-align: center; color: var(--muted); font-size: 14px;
+        }
+
+        .shortcuts-grid {
+            display: grid; gap: 10px;
+            padding: 18px;
+        }
+        .shortcuts-grid .row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 0; border-bottom: 1px solid var(--line);
+        }
+        .shortcuts-grid .row:last-child { border-bottom: 0; }
+        .shortcuts-grid .desc { color: var(--ink); font-size: 14px; }
+        .shortcuts-grid .keys { display: flex; gap: 4px; }
+        .shortcuts-grid kbd {
+            padding: 2px 7px; border-radius: 5px;
+            background: var(--surface-hover); border: 1px solid var(--line);
+            font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+            color: var(--ink);
+        }
+
+        /* =========================================================
+           Clipboard suggestion banner
+           ========================================================= */
+        .clip-suggest {
+            display: none; margin-top: 8px; padding: 10px 12px;
+            border: 1px solid var(--accent-border); border-radius: var(--radius-sm);
+            background: var(--accent-soft); color: #9a3412;
+            font-size: 13px; align-items: center; gap: 10px;
+        }
+        .clip-suggest.is-open { display: flex; }
+        .clip-suggest .clip-url {
+            flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+        }
+        .clip-suggest button {
+            padding: 5px 10px; font-size: 12px;
+            background: var(--accent); color: #fff; border: 0; border-radius: var(--radius-sm);
+        }
+        .clip-suggest .clip-dismiss { background: transparent; color: var(--muted); }
+
+        @media (max-width: 1180px) {
+            .library-controls {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .library-controls > input,
+            .library-controls > select,
+            .topic-filter {
+                grid-row: auto;
+            }
+            .library-entry {
+                grid-template-columns: 1fr;
+            }
+            .library-entry-actions,
+            .library-downloads {
+                justify-content: flex-start;
+            }
+            .meta-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 820px) {
+            .topbar { flex-direction: column; align-items: stretch; }
+            .topbar-actions { justify-content: flex-end; }
+            .tab-btn { min-width: 90px; }
+            .form-row { grid-template-columns: 1fr; }
+            .form-row .paste-btn { width: 100%; }
+            .recent-row { grid-template-columns: 1fr; }
+            .library-controls,
+            .meta-grid {
+                grid-template-columns: 1fr;
+            }
+            .library-downloads {
+                flex-basis: 100%;
+            }
+            .library-entry-actions > .secondary-button,
+            .library-entry-actions > button {
+                flex: 1 1 140px;
+            }
+        }
+    </style>
 </head>
 <body>
 <main class="page">
-    <section class="hero">
-        <button id="settings-open-button" class="settings-button" type="button" aria-label="Settings" title="Settings">&#9881;</button>
-        <p class="eyebrow">Local web tool</p>
-        <h1>TubeScribe Local</h1>
-        <p class="lead">Paste a YouTube URL, run the tool, and it will try to fetch the video captions and save a Markdown transcript into your local library.</p>
-        <div class="note">
-            Works when the video has accessible subtitles or automatic captions.
-            The result is shown as Markdown and added to the library index.
+
+    <!-- ============================================== -->
+    <!-- Header                                          -->
+    <!-- ============================================== -->
+    <header class="topbar">
+        <div class="topbar-title">
+            <h1>TubeScribe Local</h1>
+            <span class="badge">local tool</span>
+        </div>
+        <div class="topbar-actions">
+            <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle dark mode" title="Toggle theme (T)">🌙</button>
+            <button id="shortcuts-btn" class="icon-btn" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">⌨</button>
+            <button id="cmdk-btn" class="icon-btn" type="button" aria-label="Command palette" title="Command palette (Ctrl+K)">⌘</button>
+            <button id="settings-open-button" class="settings-button" type="button" aria-label="Settings" title="Settings">&#9881;</button>
+        </div>
+    </header>
+
+    <!-- ============================================== -->
+    <!-- Tabs                                            -->
+    <!-- ============================================== -->
+    <nav class="tabs" role="tablist" aria-label="Main navigation">
+        <button class="tab-btn is-active" type="button" data-tab="transcribe" role="tab" aria-selected="true">Transcribe</button>
+        <button class="tab-btn" type="button" data-tab="batch" role="tab" aria-selected="false">Batch <span class="tab-count" id="tab-count-batch" hidden>0</span></button>
+        <button class="tab-btn" type="button" data-tab="library" role="tab" aria-selected="false">Library <span class="tab-count" id="tab-count-library" hidden>0</span></button>
+    </nav>
+
+    <!-- ============================================== -->
+    <!-- TAB 1: Transcribe                               -->
+    <!-- ============================================== -->
+    <section class="tab-panel is-active" data-panel="transcribe">
+
+        <!-- Recently transcribed strip (top 3) -->
+        <div id="recent-row" class="recent-row" aria-label="Recently transcribed"></div>
+
+        <div class="panel">
+            <div class="quick-hint">
+                Paste a YouTube URL and press <strong>Transcribe</strong> (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>).
+                You can also drag a YouTube tab from your browser onto the input. The tool fetches subtitles or auto captions and saves a Markdown file to your library.
+            </div>
+
+            <form id="transcribe-form" class="form" style="margin-top:14px;">
+                <label for="youtube-url">YouTube URL</label>
+                <div class="form-row">
+                    <input
+                        id="youtube-url"
+                        name="url"
+                        type="url"
+                        class="drop-target"
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        autocomplete="off"
+                        required
+                    >
+                    <button id="paste-clipboard-btn" class="secondary-button paste-btn" type="button" aria-label="Paste from clipboard" title="Paste from clipboard">📋</button>
+                    <button id="submit-button" type="submit">Transcribe</button>
+                    <button id="tracks-button" class="secondary-button" type="button">Check Captions</button>
+                </div>
+
+                <!-- Clipboard suggestion banner -->
+                <div id="clip-suggest" class="clip-suggest" role="status">
+                    <span>Clipboard:</span>
+                    <span class="clip-url" id="clip-suggest-url"></span>
+                    <button id="clip-suggest-use" type="button">Use</button>
+                    <button id="clip-suggest-dismiss" class="clip-dismiss" type="button" aria-label="Dismiss">✕</button>
+                </div>
+
+                <details class="advanced" id="advanced-details">
+                    <summary>Advanced options (caption track, topic, time range, flags)</summary>
+                    <div class="advanced-body">
+                        <div class="transcribe-options" aria-label="Transcription settings">
+                            <div class="field">
+                                <label for="track-select">Caption Track</label>
+                                <select id="track-select" name="track_key">
+                                    <option value="">Automatic selection</option>
+                                </select>
+                            </div>
+
+                            <div class="field">
+                                <label for="topic-select">Topic</label>
+                                <select id="topic-select" name="topic_override">
+                                    <option value="">Automatic assignment</option>
+                                </select>
+                            </div>
+
+                            <label class="check-option" for="include-timestamps">
+                                <input id="include-timestamps" name="include_timestamps" type="checkbox" checked>
+                                <span>Timestamps</span>
+                            </label>
+
+                            <label class="check-option" for="include-metadata">
+                                <input id="include-metadata" name="include_metadata" type="checkbox" checked>
+                                <span>Metadata</span>
+                            </label>
+
+                            <label class="check-option" for="paragraph-mode">
+                                <input id="paragraph-mode" name="paragraph_mode" type="checkbox">
+                                <span>Paragraph mode</span>
+                            </label>
+
+                            <label class="check-option" for="generate-study-notes">
+                                <input id="generate-study-notes" name="generate_study_notes" type="checkbox">
+                                <span>Study notes</span>
+                            </label>
+
+                            <div class="field compact-field">
+                                <label for="start-seconds">Start (s)</label>
+                                <input
+                                    id="start-seconds"
+                                    name="start_seconds"
+                                    type="number"
+                                    min="0"
+                                    step="0.1"
+                                    inputmode="decimal"
+                                    placeholder="Optional"
+                                >
+                                <span class="time-hint">Seconds from start</span>
+                            </div>
+
+                            <div class="field compact-field">
+                                <label for="end-seconds">End (s)</label>
+                                <input
+                                    id="end-seconds"
+                                    name="end_seconds"
+                                    type="number"
+                                    min="0"
+                                    step="0.1"
+                                    inputmode="decimal"
+                                    placeholder="Optional"
+                                >
+                                <span class="time-hint">Leave empty for end-of-video</span>
+                            </div>
+                        </div>
+
+                        <div id="tracks-status" class="tracks-status" aria-live="polite" style="margin-top:12px;">
+                            Caption tracks have not been checked yet.
+                        </div>
+                    </div>
+                </details>
+            </form>
+
+            <!-- Original status box (still used by app.js) — kept but de-emphasized -->
+            <div id="status-box" class="status status-idle">
+                Waiting for a URL. Paste a video link and I will prepare a Markdown transcript.
+            </div>
+
+            <!-- Stage progress overlay -->
+            <div id="stage-progress" class="stage-progress" aria-live="polite">
+                <ul class="stage-list" id="stage-list">
+                    <li class="stage-step is-pending" data-stage="metadata">
+                        <span class="stage-icon">1</span>
+                        <span class="stage-label">Fetching video metadata</span>
+                        <span class="stage-detail"></span>
+                    </li>
+                    <li class="stage-step is-pending" data-stage="captions">
+                        <span class="stage-icon">2</span>
+                        <span class="stage-label">Finding caption tracks</span>
+                        <span class="stage-detail"></span>
+                    </li>
+                    <li class="stage-step is-pending" data-stage="download">
+                        <span class="stage-icon">3</span>
+                        <span class="stage-label">Downloading captions</span>
+                        <span class="stage-detail"></span>
+                    </li>
+                    <li class="stage-step is-pending" data-stage="markdown">
+                        <span class="stage-icon">4</span>
+                        <span class="stage-label">Writing Markdown</span>
+                        <span class="stage-detail"></span>
+                    </li>
+                    <li class="stage-step is-pending" data-stage="library">
+                        <span class="stage-icon">5</span>
+                        <span class="stage-label">Updating library</span>
+                        <span class="stage-detail"></span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Result panel (inline) -->
+        <section id="result-panel" class="panel result inline-result is-hidden">
+            <div class="result-head">
+                <div>
+                    <p class="eyebrow">Result</p>
+                    <h2 id="result-title">Markdown Transcript Ready</h2>
+                </div>
+                <div class="result-actions">
+                    <button id="copy-md-button" class="secondary-button" type="button">Copy MD</button>
+                    <a id="download-link" class="download-link" href="#" download>Download MD</a>
+                </div>
+            </div>
+
+            <div class="meta-grid">
+                <article class="meta-card"><span class="meta-label">Topic</span><strong id="meta-topic">-</strong></article>
+                <article class="meta-card"><span class="meta-label">Tags</span><strong id="meta-tags">-</strong></article>
+                <article class="meta-card"><span class="meta-label">Channel</span><strong id="meta-channel">-</strong></article>
+                <article class="meta-card"><span class="meta-label">Language</span><strong id="meta-language">-</strong></article>
+                <article class="meta-card"><span class="meta-label">Source</span><strong id="meta-source">-</strong></article>
+                <article class="meta-card"><span class="meta-label">Segments</span><strong id="meta-segments">-</strong></article>
+                <article class="meta-card"><span class="meta-label">Duration</span><strong id="meta-duration">-</strong></article>
+                <article class="meta-card"><span class="meta-label">Study Notes</span><strong id="meta-study-notes">-</strong></article>
+                <article class="meta-card"><span class="meta-label">MD File</span><strong id="meta-file">-</strong></article>
+            </div>
+
+            <label for="transcript-output">Markdown Transcript</label>
+            <div class="transcript-search" data-target="transcript-output">
+                <input type="search" placeholder="Find in transcript..." aria-label="Find in transcript">
+                <span class="match-info"></span>
+                <button type="button" data-action="prev" title="Previous">↑</button>
+                <button type="button" data-action="next" title="Next">↓</button>
+            </div>
+            <textarea id="transcript-output" readonly spellcheck="false"></textarea>
+        </section>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- TAB 2: Batch                                    -->
+    <!-- ============================================== -->
+    <section class="tab-panel" data-panel="batch">
+        <div class="panel">
+            <form id="batch-form" class="batch-form" style="margin-top:0; padding-top:0; border-top:0;">
+                <div class="batch-head">
+                    <div>
+                        <p class="eyebrow">Batch</p>
+                        <h2>Queue</h2>
+                    </div>
+                    <div class="batch-actions">
+                        <button id="batch-submit-button" type="submit">Process Batch</button>
+                        <button id="batch-pause-button" class="secondary-button" type="button" disabled>Pause</button>
+                        <button id="batch-overflow-btn" class="secondary-button overflow-trigger" type="button" aria-haspopup="true" aria-expanded="false" title="More actions">⋯</button>
+                        <div id="batch-overflow-menu" class="overflow-menu" role="menu">
+                            <button id="batch-resume-button" class="secondary-button" type="button" disabled>Resume</button>
+                            <button id="batch-cancel-button" class="secondary-button" type="button" disabled>Cancel</button>
+                            <a id="batch-zip-download" class="secondary-button is-hidden" href="#" download>Download ZIP</a>
+                            <button id="batch-clear-button" class="secondary-button" type="button">Clear</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="batch-meta">
+                    <label for="batch-urls">Video URLs (one per line)</label>
+                    <span class="batch-counter" id="batch-counter">0 / 10</span>
+                </div>
+                <textarea id="batch-urls" class="batch-textarea drop-target" placeholder="https://www.youtube.com/watch?v=...&#10;https://www.youtube.com/watch?v=..."></textarea>
+
+                <label class="check-option" for="batch-expand-playlists">
+                    <input id="batch-expand-playlists" name="expand_playlists" type="checkbox">
+                    <span>Expand playlists</span>
+                </label>
+
+                <div id="batch-status" class="batch-status batch-status-idle" aria-live="polite">
+                    Batch queue is idle.
+                </div>
+
+                <div id="batch-list" class="batch-list"></div>
+                <div id="batch-empty" class="empty-state" style="display:none;">
+                    <div class="empty-icon">📦</div>
+                    <div class="empty-title">No items in the batch yet</div>
+                    <div class="empty-sub">Paste URLs above (one per line) and click Process Batch.</div>
+                </div>
+            </form>
         </div>
     </section>
 
-    <section class="panel">
-        <form id="transcribe-form" class="form">
-            <label for="youtube-url">YouTube URL</label>
-            <div class="form-row">
+    <!-- ============================================== -->
+    <!-- TAB 3: Library                                  -->
+    <!-- ============================================== -->
+    <section class="tab-panel" data-panel="library">
+        <section id="library-panel" class="panel library">
+            <div class="library-head">
+                <div>
+                    <p class="eyebrow">Library</p>
+                    <h2>Local Transcripts</h2>
+                </div>
+                <div class="result-actions">
+                    <button id="library-refresh-button" class="secondary-button" type="button">Refresh</button>
+                </div>
+            </div>
+
+            <div class="library-controls">
+                <label for="library-search">Search</label>
                 <input
-                    id="youtube-url"
-                    name="url"
-                    type="url"
-                    placeholder="https://www.youtube.com/watch?v=..."
+                    id="library-search"
+                    type="search"
+                    placeholder="Search by title, channel, topic, or tags"
                     autocomplete="off"
-                    required
                 >
-                <button id="submit-button" type="submit">Transcribe</button>
-                <button id="tracks-button" class="secondary-button" type="button">Check Captions</button>
+
+                <div id="library-topic-filter" class="topic-filter">
+                    <label id="library-topic-label" for="library-topic-trigger">Topics</label>
+                    <button
+                        id="library-topic-trigger"
+                        class="multi-select-trigger"
+                        type="button"
+                        aria-haspopup="true"
+                        aria-expanded="false"
+                        aria-labelledby="library-topic-label library-topic-summary"
+                    >
+                        <span id="library-topic-summary">All topics</span>
+                        <span aria-hidden="true">▾</span>
+                    </button>
+                    <div id="library-topic-menu" class="multi-select-menu is-hidden" role="group" aria-label="Topic filters">
+                        <div id="library-topic-options" class="multi-select-options"></div>
+                        <button id="library-topic-clear" class="inline-button" type="button">Clear topics</button>
+                    </div>
+                </div>
+
+                <label for="library-channel-filter">Channel</label>
+                <select id="library-channel-filter">
+                    <option value="">All channels</option>
+                </select>
+
+                <label for="library-language-filter">Language</label>
+                <select id="library-language-filter">
+                    <option value="">All languages</option>
+                </select>
+
+                <div id="library-tag-filter" class="topic-filter">
+                    <label id="library-tag-label" for="library-tag-trigger">Tags</label>
+                    <button
+                        id="library-tag-trigger"
+                        class="multi-select-trigger"
+                        type="button"
+                        aria-haspopup="true"
+                        aria-expanded="false"
+                        aria-labelledby="library-tag-label library-tag-summary"
+                    >
+                        <span id="library-tag-summary">All tags</span>
+                        <span aria-hidden="true">▾</span>
+                    </button>
+                    <div id="library-tag-menu" class="multi-select-menu is-hidden" role="group" aria-label="Tag filters">
+                        <div id="library-tag-options" class="multi-select-options"></div>
+                        <button id="library-tag-clear" class="inline-button" type="button">Clear tags</button>
+                    </div>
+                </div>
             </div>
 
-            <div class="transcribe-options" aria-label="Transcription settings">
+            <div class="study-guide-trigger">
                 <div class="field">
-                    <label for="track-select">Caption Track</label>
-                    <select id="track-select" name="track_key">
-                        <option value="">Automatic selection</option>
+                    <label for="study-guide-provider">AI Engine</label>
+                    <select id="study-guide-provider">
+                        <option value="local">Local heuristic</option>
                     </select>
                 </div>
-
-                <div class="field">
-                    <label for="topic-select">Topic</label>
-                    <select id="topic-select" name="topic_override">
-                        <option value="">Automatic assignment</option>
-                    </select>
-                </div>
-
-                <label class="check-option" for="include-timestamps">
-                    <input id="include-timestamps" name="include_timestamps" type="checkbox" checked>
-                    <span>Timestamps</span>
-                </label>
-
-                <label class="check-option" for="include-metadata">
-                    <input id="include-metadata" name="include_metadata" type="checkbox" checked>
-                    <span>Metadata</span>
-                </label>
-
-                <label class="check-option" for="paragraph-mode">
-                    <input id="paragraph-mode" name="paragraph_mode" type="checkbox">
-                    <span>Paragraph mode</span>
-                </label>
-
-                <label class="check-option" for="generate-study-notes">
-                    <input id="generate-study-notes" name="generate_study_notes" type="checkbox">
-                    <span>Study notes</span>
-                </label>
-
-                <div class="field compact-field">
-                    <label for="start-seconds">Start seconds</label>
-                    <input
-                        id="start-seconds"
-                        name="start_seconds"
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        inputmode="decimal"
-                        placeholder="Optional"
-                    >
-                </div>
-
-                <div class="field compact-field">
-                    <label for="end-seconds">End seconds</label>
-                    <input
-                        id="end-seconds"
-                        name="end_seconds"
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        inputmode="decimal"
-                        placeholder="Optional"
-                    >
-                </div>
-            </div>
-
-            <div id="tracks-status" class="tracks-status" aria-live="polite">
-                Caption tracks have not been checked yet.
-            </div>
-        </form>
-
-        <div id="status-box" class="status status-idle">
-            Waiting for a URL. Paste a video link and I will prepare a Markdown transcript.
-        </div>
-
-        <form id="batch-form" class="batch-form">
-            <div class="batch-head">
-                <div>
-                    <p class="eyebrow">Batch</p>
-                    <h2>Queue</h2>
-                </div>
-                <div class="result-actions">
-                    <button id="batch-submit-button" class="secondary-button" type="submit">Process Batch</button>
-                    <button id="batch-pause-button" class="secondary-button" type="button" disabled>Pause</button>
-                    <button id="batch-resume-button" class="secondary-button" type="button" disabled>Resume</button>
-                    <button id="batch-cancel-button" class="secondary-button" type="button" disabled>Cancel</button>
-                    <a id="batch-zip-download" class="secondary-button is-hidden" href="#" download>Download ZIP</a>
-                    <button id="batch-clear-button" class="secondary-button" type="button">Clear</button>
-                </div>
-            </div>
-
-            <label for="batch-urls">Video URLs</label>
-            <textarea id="batch-urls" class="batch-textarea" placeholder="https://www.youtube.com/watch?v=..."></textarea>
-
-            <label class="check-option" for="batch-expand-playlists">
-                <input id="batch-expand-playlists" name="expand_playlists" type="checkbox">
-                <span>Expand playlists</span>
-            </label>
-
-            <div id="batch-status" class="batch-status batch-status-idle" aria-live="polite">
-                Batch queue is idle.
-            </div>
-
-            <div id="batch-list" class="batch-list"></div>
-        </form>
-    </section>
-
-    <section id="library-panel" class="panel library">
-        <div class="library-head">
-            <div>
-                <p class="eyebrow">Library</p>
-                <h2>Local Transcripts</h2>
-            </div>
-            <div class="result-actions">
                 <button id="study-guide-button" class="secondary-button" type="button">Generate Study Guide</button>
-                <button id="library-refresh-button" class="secondary-button" type="button">Refresh</button>
             </div>
-        </div>
 
-        <div class="library-controls">
-            <label for="library-search">Search</label>
-            <input
-                id="library-search"
-                type="search"
-                placeholder="Search by title, channel, topic, or tags"
-                autocomplete="off"
-            >
+            <div id="library-status" class="library-status">
+                Library has not loaded yet.
+            </div>
 
-            <div id="library-topic-filter" class="topic-filter">
-                <label id="library-topic-label" for="library-topic-trigger">Topics</label>
-                <button
-                    id="library-topic-trigger"
-                    class="multi-select-trigger"
-                    type="button"
-                    aria-haspopup="true"
-                    aria-expanded="false"
-                    aria-labelledby="library-topic-label library-topic-summary"
-                >
-                    <span id="library-topic-summary">All topics</span>
-                    <span aria-hidden="true">v</span>
-                </button>
-                <div id="library-topic-menu" class="multi-select-menu is-hidden" role="group" aria-label="Topic filters">
-                    <div id="library-topic-options" class="multi-select-options"></div>
-                    <button id="library-topic-clear" class="inline-button" type="button">Clear topics</button>
+            <div id="library-list" class="library-list" aria-live="polite"></div>
+
+            <!-- Empty state shown when library renders zero entries -->
+            <div id="library-empty" class="empty-state" style="display:none;">
+                <div class="empty-icon">📚</div>
+                <div class="empty-title">Your library is empty</div>
+                <div class="empty-sub">Transcribe your first video and it will show up here.</div>
+                <button type="button" id="library-empty-cta">+ Transcribe a video</button>
+            </div>
+
+            <div id="study-guide-panel" class="study-guide is-hidden">
+                <div class="library-preview-head">
+                    <div>
+                        <p class="eyebrow">Learning</p>
+                        <h2 id="study-guide-title">Study Guide</h2>
+                    </div>
+                    <div class="result-actions">
+                        <button id="study-guide-copy" class="secondary-button" type="button">Copy Guide</button>
+                    </div>
                 </div>
-            </div>
 
-            <label for="library-channel-filter">Channel</label>
-            <select id="library-channel-filter">
-                <option value="">All channels</option>
-            </select>
-
-            <label for="library-language-filter">Language</label>
-            <select id="library-language-filter">
-                <option value="">All languages</option>
-            </select>
-
-            <div id="library-tag-filter" class="topic-filter">
-                <label id="library-tag-label" for="library-tag-trigger">Tags</label>
-                <button
-                    id="library-tag-trigger"
-                    class="multi-select-trigger"
-                    type="button"
-                    aria-haspopup="true"
-                    aria-expanded="false"
-                    aria-labelledby="library-tag-label library-tag-summary"
-                >
-                    <span id="library-tag-summary">All tags</span>
-                    <span aria-hidden="true">v</span>
-                </button>
-                <div id="library-tag-menu" class="multi-select-menu is-hidden" role="group" aria-label="Tag filters">
-                    <div id="library-tag-options" class="multi-select-options"></div>
-                    <button id="library-tag-clear" class="inline-button" type="button">Clear tags</button>
+                <div class="meta-grid">
+                    <article class="meta-card"><span class="meta-label">Topic</span><strong id="study-guide-topic">-</strong></article>
+                    <article class="meta-card"><span class="meta-label">Sources</span><strong id="study-guide-sources">-</strong></article>
                 </div>
-            </div>
 
-            <label for="study-guide-provider">AI Engine</label>
-            <select id="study-guide-provider">
-                <option value="local">Local heuristic</option>
-            </select>
-        </div>
-
-        <div id="library-status" class="library-status">
-            Library has not loaded yet.
-        </div>
-
-        <div id="library-list" class="library-list" aria-live="polite"></div>
-
-        <div id="study-guide-panel" class="study-guide is-hidden">
-            <div class="library-preview-head">
-                <div>
-                    <p class="eyebrow">Learning</p>
-                    <h2 id="study-guide-title">Study Guide</h2>
+                <label for="study-guide-text">Generated Markdown</label>
+                <div class="transcript-search" data-target="study-guide-text">
+                    <input type="search" placeholder="Find in guide..." aria-label="Find in study guide">
+                    <span class="match-info"></span>
+                    <button type="button" data-action="prev" title="Previous">↑</button>
+                    <button type="button" data-action="next" title="Next">↓</button>
                 </div>
-                <div class="result-actions">
-                    <button id="study-guide-copy" class="secondary-button" type="button">Copy Guide</button>
+                <textarea id="study-guide-text" readonly spellcheck="false"></textarea>
+            </div>
+
+            <div id="library-preview" class="library-preview is-hidden">
+                <div class="library-preview-head">
+                    <div>
+                        <p class="eyebrow">Preview</p>
+                        <h2 id="library-preview-title">Markdown Preview</h2>
+                    </div>
+                    <div class="result-actions">
+                        <button id="library-preview-copy" class="secondary-button" type="button">Copy MD</button>
+                        <a id="library-preview-source" class="secondary-button is-hidden" href="#" target="_blank" rel="noreferrer">YouTube</a>
+                        <a id="library-preview-download" class="download-link" href="#" download>Download MD</a>
+                    </div>
                 </div>
-            </div>
 
-            <div class="meta-grid">
-                <article class="meta-card">
-                    <span class="meta-label">Topic</span>
-                    <strong id="study-guide-topic">-</strong>
-                </article>
-                <article class="meta-card">
-                    <span class="meta-label">Sources</span>
-                    <strong id="study-guide-sources">-</strong>
-                </article>
-            </div>
-
-            <label for="study-guide-text">Generated Markdown</label>
-            <textarea id="study-guide-text" readonly spellcheck="false"></textarea>
-        </div>
-
-        <div id="library-preview" class="library-preview is-hidden">
-            <div class="library-preview-head">
-                <div>
-                    <p class="eyebrow">Preview</p>
-                    <h2 id="library-preview-title">Markdown Preview</h2>
+                <div class="meta-grid">
+                    <article class="meta-card"><span class="meta-label">Topic</span><strong id="library-preview-topic">-</strong></article>
+                    <article class="meta-card"><span class="meta-label">Tags</span><strong id="library-preview-tags">-</strong></article>
+                    <article class="meta-card"><span class="meta-label">Channel</span><strong id="library-preview-channel">-</strong></article>
+                    <article class="meta-card"><span class="meta-label">Language</span><strong id="library-preview-language">-</strong></article>
+                    <article class="meta-card"><span class="meta-label">Created</span><strong id="library-preview-created">-</strong></article>
+                    <article class="meta-card"><span class="meta-label">MD File</span><strong id="library-preview-path">-</strong></article>
                 </div>
-                <div class="result-actions">
-                    <button id="library-preview-copy" class="secondary-button" type="button">Copy MD</button>
-                    <a id="library-preview-source" class="secondary-button is-hidden" href="#" target="_blank" rel="noreferrer">YouTube</a>
-                    <a id="library-preview-download" class="download-link" href="#" download>Download MD</a>
+
+                <label for="library-preview-text">Markdown Transcript</label>
+                <div class="transcript-search" data-target="library-preview-text">
+                    <input type="search" placeholder="Find in transcript..." aria-label="Find in preview">
+                    <span class="match-info"></span>
+                    <button type="button" data-action="prev" title="Previous">↑</button>
+                    <button type="button" data-action="next" title="Next">↓</button>
                 </div>
+                <textarea id="library-preview-text" readonly spellcheck="false"></textarea>
             </div>
-
-            <div class="meta-grid">
-                <article class="meta-card">
-                    <span class="meta-label">Topic</span>
-                    <strong id="library-preview-topic">-</strong>
-                </article>
-                <article class="meta-card">
-                    <span class="meta-label">Tags</span>
-                    <strong id="library-preview-tags">-</strong>
-                </article>
-                <article class="meta-card">
-                    <span class="meta-label">Channel</span>
-                    <strong id="library-preview-channel">-</strong>
-                </article>
-                <article class="meta-card">
-                    <span class="meta-label">Language</span>
-                    <strong id="library-preview-language">-</strong>
-                </article>
-                <article class="meta-card">
-                    <span class="meta-label">Created</span>
-                    <strong id="library-preview-created">-</strong>
-                </article>
-                <article class="meta-card">
-                    <span class="meta-label">MD File</span>
-                    <strong id="library-preview-path">-</strong>
-                </article>
-            </div>
-
-            <label for="library-preview-text">Markdown Transcript</label>
-            <textarea id="library-preview-text" readonly spellcheck="false"></textarea>
-        </div>
+        </section>
     </section>
 
+    <!-- ============================================== -->
+    <!-- Settings modal                                  -->
+    <!-- ============================================== -->
     <div id="settings-modal" class="modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div class="modal-backdrop" data-settings-close="true"></div>
         <section class="modal-dialog settings" aria-describedby="settings-description">
@@ -373,62 +1124,897 @@
         </section>
     </div>
 
-    <section id="result-panel" class="panel result is-hidden">
-        <div class="result-head">
-            <div>
-                <p class="eyebrow">Result</p>
-                <h2 id="result-title">Markdown Transcript Ready</h2>
+    <!-- ============================================== -->
+    <!-- Command palette                                 -->
+    <!-- ============================================== -->
+    <div id="cmd-palette" class="cmd-overlay" role="dialog" aria-modal="true" aria-label="Command palette">
+        <div class="cmd-modal">
+            <div class="cmd-input-wrap">
+                <span style="opacity:.5;">🔍</span>
+                <input id="cmd-input" type="text" placeholder="Type a command or search the library..." autocomplete="off">
             </div>
-            <div class="result-actions">
-                <button id="copy-md-button" class="secondary-button" type="button">Copy MD</button>
-                <a id="download-link" class="download-link" href="#" download>Download MD</a>
+            <div id="cmd-list" class="cmd-list"></div>
+        </div>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- Keyboard shortcuts overlay                      -->
+    <!-- ============================================== -->
+    <div id="shortcuts-modal" class="cmd-overlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+        <div class="cmd-modal">
+            <div class="cmd-input-wrap" style="justify-content:space-between;">
+                <strong>Keyboard shortcuts</strong>
+                <button class="icon-btn" id="shortcuts-close" type="button" aria-label="Close">✕</button>
+            </div>
+            <div class="shortcuts-grid">
+                <div class="row"><span class="desc">Submit transcription</span><span class="keys"><kbd>Ctrl</kbd><kbd>Enter</kbd></span></div>
+                <div class="row"><span class="desc">Command palette</span><span class="keys"><kbd>Ctrl</kbd><kbd>K</kbd></span></div>
+                <div class="row"><span class="desc">Show this list</span><span class="keys"><kbd>?</kbd></span></div>
+                <div class="row"><span class="desc">Go to Transcribe</span><span class="keys"><kbd>g</kbd><kbd>t</kbd></span></div>
+                <div class="row"><span class="desc">Go to Batch</span><span class="keys"><kbd>g</kbd><kbd>b</kbd></span></div>
+                <div class="row"><span class="desc">Go to Library</span><span class="keys"><kbd>g</kbd><kbd>l</kbd></span></div>
+                <div class="row"><span class="desc">Toggle dark mode</span><span class="keys"><kbd>Shift</kbd><kbd>D</kbd></span></div>
+                <div class="row"><span class="desc">Close modal / palette</span><span class="keys"><kbd>Esc</kbd></span></div>
+                <div class="row"><span class="desc">Focus URL input</span><span class="keys"><kbd>/</kbd></span></div>
             </div>
         </div>
+    </div>
 
-        <div class="meta-grid">
-            <article class="meta-card">
-                <span class="meta-label">Topic</span>
-                <strong id="meta-topic">-</strong>
-            </article>
-            <article class="meta-card">
-                <span class="meta-label">Tags</span>
-                <strong id="meta-tags">-</strong>
-            </article>
-            <article class="meta-card">
-                <span class="meta-label">Channel</span>
-                <strong id="meta-channel">-</strong>
-            </article>
-            <article class="meta-card">
-                <span class="meta-label">Language</span>
-                <strong id="meta-language">-</strong>
-            </article>
-            <article class="meta-card">
-                <span class="meta-label">Source</span>
-                <strong id="meta-source">-</strong>
-            </article>
-            <article class="meta-card">
-                <span class="meta-label">Segments</span>
-                <strong id="meta-segments">-</strong>
-            </article>
-            <article class="meta-card">
-                <span class="meta-label">Duration</span>
-                <strong id="meta-duration">-</strong>
-            </article>
-            <article class="meta-card">
-                <span class="meta-label">Study Notes</span>
-                <strong id="meta-study-notes">-</strong>
-            </article>
-            <article class="meta-card">
-                <span class="meta-label">MD File</span>
-                <strong id="meta-file">-</strong>
-            </article>
-        </div>
-
-        <label for="transcript-output">Markdown Transcript</label>
-        <textarea id="transcript-output" readonly spellcheck="false"></textarea>
-    </section>
+    <!-- Toast container (populated by JS) -->
+    <div id="toast-container" aria-live="polite" aria-atomic="false"></div>
 </main>
 
-<script src="static/app.js?v=20260530-topic-tag-dropdown-filter"></script>
+<script src="/static/app.js?v=20260530-topic-tag-dropdown-filter"></script>
+
+<!-- ===== UI enhancements ===== -->
+<script>
+(function () {
+    'use strict';
+
+    var API_BASE = window.location.protocol === 'file:' ? 'http://127.0.0.1:8765' : window.location.origin;
+    var LS_PREFIX = 'tubescribe.v2.';
+    var YT_REGEX = /(?:https?:\/\/)?(?:www\.|m\.)?(?:youtube\.com|youtu\.be|youtube-nocookie\.com)\/[^\s]+/i;
+
+    // -------- localStorage helpers --------
+    function lsGet(k, fallback) {
+        try { var v = localStorage.getItem(LS_PREFIX + k); return v === null ? fallback : v; } catch (e) { return fallback; }
+    }
+    function lsSet(k, v) {
+        try { localStorage.setItem(LS_PREFIX + k, v); } catch (e) {}
+    }
+
+    // =========================================================
+    // Toast system
+    // =========================================================
+    var toastContainer = document.getElementById('toast-container');
+    function toast(kind, message, opts) {
+        opts = opts || {};
+        var el = document.createElement('div');
+        el.className = 'toast is-' + kind;
+        var msg = document.createElement('div');
+        msg.className = 'toast-msg';
+        msg.textContent = message;
+        el.appendChild(msg);
+        var close = document.createElement('button');
+        close.className = 'toast-close';
+        close.type = 'button';
+        close.setAttribute('aria-label', 'Dismiss');
+        close.textContent = '×';
+        close.addEventListener('click', function () { dismissToast(el); });
+        el.appendChild(close);
+        toastContainer.appendChild(el);
+        var ttl = opts.ttl != null ? opts.ttl : 4000;
+        if (ttl > 0) {
+            setTimeout(function () { dismissToast(el); }, ttl);
+        }
+        return el;
+    }
+    function dismissToast(el) {
+        if (!el || !el.parentNode) return;
+        el.classList.add('is-leaving');
+        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 240);
+    }
+    window.tubescribeToast = toast;
+
+    // =========================================================
+    // Tab switching + localStorage restore
+    // =========================================================
+    var tabButtons = document.querySelectorAll('.tab-btn');
+    var tabPanels = document.querySelectorAll('.tab-panel');
+
+    function activateTab(name) {
+        tabButtons.forEach(function (btn) {
+            var on = btn.getAttribute('data-tab') === name;
+            btn.classList.toggle('is-active', on);
+            btn.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        tabPanels.forEach(function (panel) {
+            panel.classList.toggle('is-active', panel.getAttribute('data-panel') === name);
+        });
+        lsSet('activeTab', name);
+    }
+    tabButtons.forEach(function (btn) {
+        btn.addEventListener('click', function () { activateTab(btn.getAttribute('data-tab')); });
+    });
+    var savedTab = lsGet('activeTab', 'transcribe');
+    if (['transcribe', 'batch', 'library'].indexOf(savedTab) !== -1) {
+        activateTab(savedTab);
+    }
+
+    // =========================================================
+    // Dark mode toggle
+    // =========================================================
+    var themeToggle = document.getElementById('theme-toggle');
+    function applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        themeToggle.textContent = theme === 'dark' ? '☀' : '🌙';
+        themeToggle.title = 'Toggle theme — currently ' + theme;
+        lsSet('theme', theme);
+    }
+    var savedTheme = lsGet('theme', null);
+    if (!savedTheme) {
+        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        savedTheme = prefersDark ? 'dark' : 'light';
+    }
+    applyTheme(savedTheme);
+    themeToggle.addEventListener('click', function () {
+        var current = document.documentElement.getAttribute('data-theme');
+        applyTheme(current === 'dark' ? 'light' : 'dark');
+    });
+
+    // =========================================================
+    // Advanced details — persist open state
+    // =========================================================
+    var advanced = document.getElementById('advanced-details');
+    if (advanced) {
+        if (lsGet('advancedOpen', 'false') === 'true') advanced.open = true;
+        advanced.addEventListener('toggle', function () {
+            lsSet('advancedOpen', advanced.open ? 'true' : 'false');
+        });
+    }
+
+    // =========================================================
+    // Ctrl+Enter on URL input
+    // =========================================================
+    var urlInput = document.getElementById('youtube-url');
+    var form = document.getElementById('transcribe-form');
+    if (urlInput && form) {
+        urlInput.addEventListener('keydown', function (event) {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                event.preventDefault();
+                if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                else form.submit();
+            }
+        });
+    }
+
+    // =========================================================
+    // Drag-and-drop URLs
+    // =========================================================
+    function extractYoutubeUrlFromDrop(event) {
+        var dt = event.dataTransfer;
+        if (!dt) return null;
+        var candidates = [];
+        try { var uri = dt.getData('text/uri-list'); if (uri) candidates.push(uri); } catch (e) {}
+        try { var txt = dt.getData('text/plain'); if (txt) candidates.push(txt); } catch (e) {}
+        for (var i = 0; i < candidates.length; i++) {
+            var lines = String(candidates[i]).split(/\r?\n/);
+            for (var j = 0; j < lines.length; j++) {
+                var match = lines[j].match(YT_REGEX);
+                if (match) return match[0];
+            }
+        }
+        return null;
+    }
+    function attachDropHandler(el, onUrl, allowMulti) {
+        if (!el) return;
+        ['dragenter', 'dragover'].forEach(function (evt) {
+            el.addEventListener(evt, function (e) {
+                if (e.dataTransfer && (e.dataTransfer.types.indexOf('text/uri-list') !== -1 || e.dataTransfer.types.indexOf('text/plain') !== -1)) {
+                    e.preventDefault();
+                    el.classList.add('is-dragover');
+                }
+            });
+        });
+        ['dragleave', 'dragend'].forEach(function (evt) {
+            el.addEventListener(evt, function () { el.classList.remove('is-dragover'); });
+        });
+        el.addEventListener('drop', function (e) {
+            e.preventDefault();
+            el.classList.remove('is-dragover');
+            if (allowMulti) {
+                var dt = e.dataTransfer;
+                var raw = '';
+                try { raw = dt.getData('text/uri-list') || dt.getData('text/plain') || ''; } catch (err) {}
+                var urls = String(raw).split(/\r?\n/).map(function (s) { return s.trim(); })
+                    .filter(function (s) { return YT_REGEX.test(s); });
+                if (urls.length) {
+                    onUrl(urls);
+                    return;
+                }
+            }
+            var url = extractYoutubeUrlFromDrop(e);
+            if (url) onUrl(url);
+            else toast('error', 'No YouTube URL found in dropped content');
+        });
+    }
+    attachDropHandler(urlInput, function (url) {
+        urlInput.value = url;
+        urlInput.dispatchEvent(new Event('input', { bubbles: true }));
+        toast('success', 'URL added from drop');
+    });
+    var batchUrls = document.getElementById('batch-urls');
+    attachDropHandler(batchUrls, function (urls) {
+        if (!Array.isArray(urls)) urls = [urls];
+        var existing = batchUrls.value.trim();
+        var combined = existing ? existing + '\n' + urls.join('\n') : urls.join('\n');
+        batchUrls.value = combined;
+        batchUrls.dispatchEvent(new Event('input', { bubbles: true }));
+        toast('success', urls.length + ' URL' + (urls.length > 1 ? 's' : '') + ' added to batch');
+    }, true);
+
+    // =========================================================
+    // Paste-from-clipboard button + clipboard suggestion
+    // =========================================================
+    var pasteBtn = document.getElementById('paste-clipboard-btn');
+    var clipSuggest = document.getElementById('clip-suggest');
+    var clipSuggestUrl = document.getElementById('clip-suggest-url');
+    var clipSuggestUse = document.getElementById('clip-suggest-use');
+    var clipSuggestDismiss = document.getElementById('clip-suggest-dismiss');
+    var lastSuggestedClip = '';
+
+    function tryReadClipboard() {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+            return Promise.reject(new Error('Clipboard API unavailable'));
+        }
+        return navigator.clipboard.readText();
+    }
+    pasteBtn && pasteBtn.addEventListener('click', function () {
+        tryReadClipboard().then(function (text) {
+            var match = String(text).match(YT_REGEX);
+            if (match) {
+                urlInput.value = match[0];
+                urlInput.dispatchEvent(new Event('input', { bubbles: true }));
+                urlInput.focus();
+                toast('success', 'Pasted from clipboard');
+            } else {
+                toast('error', 'Clipboard has no YouTube URL');
+            }
+        }).catch(function () {
+            toast('error', 'Clipboard access blocked — paste manually');
+        });
+    });
+    function dismissClipSuggest() {
+        clipSuggest.classList.remove('is-open');
+        lsSet('lastDismissedClip', lastSuggestedClip);
+    }
+    clipSuggestUse && clipSuggestUse.addEventListener('click', function () {
+        urlInput.value = lastSuggestedClip;
+        urlInput.dispatchEvent(new Event('input', { bubbles: true }));
+        urlInput.focus();
+        dismissClipSuggest();
+        toast('success', 'URL added');
+    });
+    clipSuggestDismiss && clipSuggestDismiss.addEventListener('click', dismissClipSuggest);
+    function checkClipboardSuggestion() {
+        if (urlInput.value.trim()) return;
+        tryReadClipboard().then(function (text) {
+            var match = String(text).match(YT_REGEX);
+            if (!match) return;
+            var url = match[0];
+            if (url === lsGet('lastDismissedClip', '')) return;
+            lastSuggestedClip = url;
+            clipSuggestUrl.textContent = url;
+            clipSuggest.classList.add('is-open');
+        }).catch(function () {});
+    }
+    window.addEventListener('focus', checkClipboardSuggestion);
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) checkClipboardSuggestion();
+    });
+
+    // =========================================================
+    // Batch URL counter + overflow menu
+    // =========================================================
+    var batchCounter = document.getElementById('batch-counter');
+    var tabCountBatch = document.getElementById('tab-count-batch');
+    var MAX_URLS = 10;
+    function updateBatchCounter() {
+        if (!batchUrls || !batchCounter) return;
+        var lines = batchUrls.value.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
+        var count = lines.length;
+        batchCounter.textContent = count + ' / ' + MAX_URLS;
+        batchCounter.classList.toggle('is-over', count > MAX_URLS);
+        if (tabCountBatch) {
+            if (count > 0) { tabCountBatch.textContent = String(count); tabCountBatch.hidden = false; }
+            else tabCountBatch.hidden = true;
+        }
+    }
+    if (batchUrls) {
+        batchUrls.addEventListener('input', updateBatchCounter);
+        updateBatchCounter();
+    }
+    var overflowBtn = document.getElementById('batch-overflow-btn');
+    var overflowMenu = document.getElementById('batch-overflow-menu');
+    if (overflowBtn && overflowMenu) {
+        overflowBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var open = overflowMenu.classList.toggle('is-open');
+            overflowBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        document.addEventListener('click', function (e) {
+            if (!overflowMenu.contains(e.target) && e.target !== overflowBtn) {
+                overflowMenu.classList.remove('is-open');
+                overflowBtn.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
+
+    // =========================================================
+    // Stage progress synthesis
+    // =========================================================
+    var stageProgress = document.getElementById('stage-progress');
+    var stageSteps = document.querySelectorAll('#stage-list .stage-step');
+    var stageTimers = [];
+    function resetStages() {
+        stageSteps.forEach(function (step, i) {
+            step.classList.remove('is-active', 'is-done', 'is-error');
+            step.classList.add('is-pending');
+            step.querySelector('.stage-icon').textContent = String(i + 1);
+            step.querySelector('.stage-detail').textContent = '';
+        });
+    }
+    function setStage(name, state, detail) {
+        stageSteps.forEach(function (step) {
+            if (step.getAttribute('data-stage') !== name) return;
+            step.classList.remove('is-pending', 'is-active', 'is-done', 'is-error');
+            step.classList.add('is-' + state);
+            if (state === 'done' || state === 'error') {
+                step.querySelector('.stage-icon').textContent = '';
+            }
+            if (detail !== undefined) step.querySelector('.stage-detail').textContent = detail;
+        });
+    }
+    function startStageSequence() {
+        stageTimers.forEach(clearTimeout);
+        stageTimers = [];
+        resetStages();
+        stageProgress.classList.add('is-active');
+        setStage('metadata', 'active');
+        // Synthetic timing — completes when real response arrives
+        stageTimers.push(setTimeout(function () {
+            setStage('metadata', 'done');
+            setStage('captions', 'active');
+        }, 1200));
+        stageTimers.push(setTimeout(function () {
+            setStage('captions', 'done');
+            setStage('download', 'active');
+        }, 2800));
+        stageTimers.push(setTimeout(function () {
+            setStage('download', 'done');
+            setStage('markdown', 'active');
+        }, 4400));
+        stageTimers.push(setTimeout(function () {
+            setStage('markdown', 'done');
+            setStage('library', 'active');
+        }, 6000));
+    }
+    function completeAllStages() {
+        stageTimers.forEach(clearTimeout);
+        stageTimers = [];
+        ['metadata', 'captions', 'download', 'markdown', 'library'].forEach(function (n) {
+            setStage(n, 'done');
+        });
+        setTimeout(function () { stageProgress.classList.remove('is-active'); }, 1200);
+    }
+    function failStages() {
+        stageTimers.forEach(clearTimeout);
+        stageTimers = [];
+        var foundActive = false;
+        stageSteps.forEach(function (step) {
+            if (step.classList.contains('is-active')) {
+                setStage(step.getAttribute('data-stage'), 'error');
+                foundActive = true;
+            }
+        });
+        if (!foundActive) setStage('metadata', 'error');
+        setTimeout(function () { stageProgress.classList.remove('is-active'); }, 3000);
+    }
+    // Hook form submit
+    if (form) {
+        form.addEventListener('submit', function () { startStageSequence(); });
+    }
+    // Observe status box to detect completion / error
+    var statusBox = document.getElementById('status-box');
+    if (statusBox) {
+        new MutationObserver(function () {
+            if (statusBox.classList.contains('status-success')) completeAllStages();
+            else if (statusBox.classList.contains('status-error')) failStages();
+        }).observe(statusBox, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    // =========================================================
+    // Result panel auto-switch + Library auto-switch + scroll
+    // =========================================================
+    var resultPanel = document.getElementById('result-panel');
+    if (resultPanel && window.MutationObserver) {
+        new MutationObserver(function () {
+            if (!resultPanel.classList.contains('is-hidden')) {
+                activateTab('transcribe');
+                resultPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                loadRecent(); // refresh recent strip on new result
+            }
+        }).observe(resultPanel, { attributes: true, attributeFilter: ['class'] });
+    }
+    [document.getElementById('library-preview'), document.getElementById('study-guide-panel')].forEach(function (el) {
+        if (!el || !window.MutationObserver) return;
+        new MutationObserver(function () {
+            if (!el.classList.contains('is-hidden')) {
+                activateTab('library');
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }).observe(el, { attributes: true, attributeFilter: ['class'] });
+    });
+
+    // =========================================================
+    // Library count badge + empty state
+    // =========================================================
+    var libraryList = document.getElementById('library-list');
+    var libraryEmpty = document.getElementById('library-empty');
+    var tabCountLibrary = document.getElementById('tab-count-library');
+    var libraryStatus = document.getElementById('library-status');
+    function refreshLibraryUi() {
+        var count = libraryList.querySelectorAll('.library-entry').length;
+        if (tabCountLibrary) {
+            if (count > 0) { tabCountLibrary.textContent = String(count); tabCountLibrary.hidden = false; }
+            else tabCountLibrary.hidden = true;
+        }
+        var statusOk = libraryStatus && libraryStatus.className.indexOf('success') !== -1;
+        var statusIdle = libraryStatus && libraryStatus.className.indexOf('idle') !== -1;
+        if (count === 0 && (statusOk || statusIdle)) {
+            libraryEmpty.style.display = 'block';
+        } else {
+            libraryEmpty.style.display = 'none';
+        }
+    }
+    if (libraryList && window.MutationObserver) {
+        new MutationObserver(refreshLibraryUi).observe(libraryList, { childList: true });
+    }
+    if (libraryStatus && window.MutationObserver) {
+        new MutationObserver(refreshLibraryUi).observe(libraryStatus, { attributes: true, characterData: true, childList: true, subtree: true });
+    }
+    var libraryEmptyCta = document.getElementById('library-empty-cta');
+    libraryEmptyCta && libraryEmptyCta.addEventListener('click', function () {
+        activateTab('transcribe');
+        urlInput && urlInput.focus();
+    });
+
+    // =========================================================
+    // Batch list empty state
+    // =========================================================
+    var batchList = document.getElementById('batch-list');
+    var batchEmpty = document.getElementById('batch-empty');
+    function refreshBatchEmpty() {
+        if (!batchList || !batchEmpty) return;
+        var hasItems = batchList.children.length > 0;
+        batchEmpty.style.display = hasItems ? 'none' : 'block';
+    }
+    refreshBatchEmpty();
+    if (batchList && window.MutationObserver) {
+        new MutationObserver(refreshBatchEmpty).observe(batchList, { childList: true });
+    }
+
+    // =========================================================
+    // Recently transcribed cards
+    // =========================================================
+    var recentRow = document.getElementById('recent-row');
+    function formatRelDate(iso) {
+        if (!iso) return '';
+        try {
+            var d = new Date(iso);
+            var diffMs = Date.now() - d.getTime();
+            var min = Math.floor(diffMs / 60000);
+            if (min < 1) return 'just now';
+            if (min < 60) return min + 'm ago';
+            var hr = Math.floor(min / 60);
+            if (hr < 24) return hr + 'h ago';
+            var day = Math.floor(hr / 24);
+            if (day < 7) return day + 'd ago';
+            return d.toLocaleDateString();
+        } catch (e) { return ''; }
+    }
+    function loadRecent() {
+        if (!recentRow) return;
+        fetch(API_BASE + '/api/library').then(function (r) { return r.json(); }).then(function (data) {
+            var entries = (data && data.entries) || [];
+            entries.sort(function (a, b) {
+                return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+            });
+            var top = entries.slice(0, 3);
+            recentRow.innerHTML = '';
+            top.forEach(function (entry) {
+                var card = document.createElement('div');
+                card.className = 'recent-card';
+                card.setAttribute('role', 'button');
+                card.tabIndex = 0;
+                var title = document.createElement('div');
+                title.className = 'recent-title';
+                title.textContent = entry.title || 'Untitled';
+                card.appendChild(title);
+                var meta = document.createElement('div');
+                meta.className = 'recent-meta';
+                meta.textContent = [entry.channel || '', entry.topic || '', formatRelDate(entry.created_at)].filter(Boolean).join(' · ');
+                card.appendChild(meta);
+                card.addEventListener('click', function () { openLibraryEntry(entry); });
+                card.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLibraryEntry(entry); }
+                });
+                recentRow.appendChild(card);
+            });
+        }).catch(function () {});
+    }
+    function openLibraryEntry(entry) {
+        if (!entry || !entry.path) {
+            toast('error', 'No file path on this entry');
+            return;
+        }
+        activateTab('library');
+        // Reuse app.js preview by populating DOM and unhiding
+        fetch(API_BASE + '/api/library/file?path=' + encodeURIComponent(entry.path))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data || !data.ok) { toast('error', 'Preview failed'); return; }
+                document.getElementById('library-preview-title').textContent = entry.title || 'Markdown Preview';
+                document.getElementById('library-preview-topic').textContent = entry.topic || '-';
+                document.getElementById('library-preview-tags').textContent = (entry.tags || []).join(', ') || '-';
+                document.getElementById('library-preview-channel').textContent = entry.channel || '-';
+                document.getElementById('library-preview-language').textContent = entry.language || '-';
+                document.getElementById('library-preview-created').textContent = entry.created_at || '-';
+                document.getElementById('library-preview-path').textContent = entry.path || '-';
+                document.getElementById('library-preview-text').value = data.text || data.markdown || data.content || '';
+                document.getElementById('library-preview').classList.remove('is-hidden');
+                var src = document.getElementById('library-preview-source');
+                var sourceUrl = entry.url || entry.video_url || entry.source_url || '';
+                if (sourceUrl) {
+                    src.href = sourceUrl;
+                    src.classList.remove('is-hidden');
+                } else { src.classList.add('is-hidden'); }
+                var dl = document.getElementById('library-preview-download');
+                if (dl) {
+                    var mdHref = (entry.downloads && entry.downloads.md) || entry.download_url || data.download_url || '';
+                    dl.href = mdHref || '#';
+                }
+            })
+            .catch(function () { toast('error', 'Could not load preview'); });
+    }
+    loadRecent();
+    // Also refresh when library list changes
+    if (libraryList && window.MutationObserver) {
+        new MutationObserver(loadRecent).observe(libraryList, { childList: true });
+    }
+
+    // =========================================================
+    // Full-text search in textareas
+    // =========================================================
+    document.querySelectorAll('.transcript-search').forEach(function (bar) {
+        var targetId = bar.getAttribute('data-target');
+        var textarea = document.getElementById(targetId);
+        if (!textarea) return;
+        var input = bar.querySelector('input');
+        var info = bar.querySelector('.match-info');
+        var prevBtn = bar.querySelector('[data-action="prev"]');
+        var nextBtn = bar.querySelector('[data-action="next"]');
+        var matches = [];
+        var idx = -1;
+        function recompute() {
+            var q = input.value;
+            matches = [];
+            idx = -1;
+            if (!q) { info.textContent = ''; return; }
+            var hay = textarea.value;
+            var qLower = q.toLowerCase();
+            var hayLower = hay.toLowerCase();
+            var pos = 0;
+            while ((pos = hayLower.indexOf(qLower, pos)) !== -1) {
+                matches.push(pos);
+                pos += qLower.length;
+            }
+            if (matches.length === 0) {
+                info.textContent = 'no matches';
+                return;
+            }
+            jumpTo(0);
+        }
+        function jumpTo(i) {
+            if (matches.length === 0) return;
+            idx = (i + matches.length) % matches.length;
+            var start = matches[idx];
+            var end = start + input.value.length;
+            textarea.focus();
+            textarea.setSelectionRange(start, end);
+            // Scroll textarea to selection
+            var prefix = textarea.value.substring(0, start);
+            var lineNo = prefix.split('\n').length;
+            var lineHeight = parseInt(getComputedStyle(textarea).lineHeight, 10) || 20;
+            textarea.scrollTop = Math.max(0, (lineNo - 4) * lineHeight);
+            info.textContent = (idx + 1) + ' / ' + matches.length;
+        }
+        var debounce;
+        input.addEventListener('input', function () {
+            clearTimeout(debounce);
+            debounce = setTimeout(recompute, 120);
+        });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (matches.length === 0) recompute();
+                else jumpTo(e.shiftKey ? idx - 1 : idx + 1);
+            } else if (e.key === 'Escape') {
+                input.value = '';
+                info.textContent = '';
+                matches = []; idx = -1;
+            }
+        });
+        prevBtn.addEventListener('click', function () { if (matches.length) jumpTo(idx - 1); else recompute(); });
+        nextBtn.addEventListener('click', function () { if (matches.length) jumpTo(idx + 1); else recompute(); });
+        // Reset when textarea content changes
+        if (window.MutationObserver) {
+            var observer = new MutationObserver(function () {
+                if (input.value) recompute();
+            });
+            // value-set programmatically doesn't fire mutation; observe via attribute changes
+            observer.observe(textarea, { attributes: true });
+        }
+    });
+
+    // =========================================================
+    // Mirror app.js status boxes into toast notifications
+    // =========================================================
+    function mirrorStatusToToast(el, kindMap) {
+        if (!el || !window.MutationObserver) return;
+        var lastMsg = '';
+        var lastKind = '';
+        new MutationObserver(function () {
+            var kind = '';
+            for (var k in kindMap) {
+                if (el.className.indexOf(k) !== -1) { kind = kindMap[k]; break; }
+            }
+            var msg = (el.textContent || '').trim();
+            if (!kind || !msg) return;
+            if (msg === lastMsg && kind === lastKind) return;
+            lastMsg = msg; lastKind = kind;
+            // Avoid spamming idle messages
+            if (kind === 'idle') return;
+            toast(kind, msg);
+        }).observe(el, { attributes: true, characterData: true, childList: true, subtree: true });
+    }
+    mirrorStatusToToast(document.getElementById('status-box'), {
+        'status-success': 'success', 'status-error': 'error', 'status-loading': 'loading'
+    });
+    mirrorStatusToToast(document.getElementById('batch-status'), {
+        'batch-status-success': 'success', 'batch-status-error': 'error', 'batch-status-loading': 'loading'
+    });
+    mirrorStatusToToast(document.getElementById('library-status'), {
+        'library-status-success': 'success', 'library-status-error': 'error', 'library-status-loading': 'loading'
+    });
+
+    // =========================================================
+    // Keyboard shortcuts
+    // =========================================================
+    var gPressed = false;
+    var gTimer = null;
+    var shortcutsModal = document.getElementById('shortcuts-modal');
+    var cmdPalette = document.getElementById('cmd-palette');
+    var settingsModalEl = document.getElementById('settings-modal');
+
+    function openModal(el) { if (el) el.classList.add('is-open'); }
+    function closeAllOverlays() {
+        shortcutsModal.classList.remove('is-open');
+        cmdPalette.classList.remove('is-open');
+        document.querySelectorAll('.multi-select-menu').forEach(function (m) {
+            m.classList.add('is-hidden');
+        });
+    }
+
+    document.addEventListener('keydown', function (e) {
+        var target = e.target;
+        var inTextField = target && (
+            target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable
+        );
+
+        // Esc closes overlays
+        if (e.key === 'Escape') {
+            if (shortcutsModal.classList.contains('is-open') || cmdPalette.classList.contains('is-open')) {
+                closeAllOverlays();
+                e.preventDefault();
+                return;
+            }
+        }
+
+        // Ctrl+K — command palette
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+            e.preventDefault();
+            openCmdPalette();
+            return;
+        }
+
+        if (inTextField) return;
+
+        // ? — shortcuts
+        if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+            e.preventDefault();
+            openModal(shortcutsModal);
+            return;
+        }
+        // / — focus URL
+        if (e.key === '/') {
+            e.preventDefault();
+            activateTab('transcribe');
+            urlInput && urlInput.focus();
+            return;
+        }
+        // Shift+D — toggle theme
+        if (e.shiftKey && e.key.toUpperCase() === 'D') {
+            e.preventDefault();
+            themeToggle.click();
+            return;
+        }
+        // g t/b/l — navigate tabs
+        if (e.key === 'g') {
+            gPressed = true;
+            clearTimeout(gTimer);
+            gTimer = setTimeout(function () { gPressed = false; }, 1000);
+            return;
+        }
+        if (gPressed) {
+            gPressed = false;
+            clearTimeout(gTimer);
+            if (e.key === 't') { e.preventDefault(); activateTab('transcribe'); return; }
+            if (e.key === 'b') { e.preventDefault(); activateTab('batch'); return; }
+            if (e.key === 'l') { e.preventDefault(); activateTab('library'); return; }
+        }
+    });
+
+    document.getElementById('shortcuts-btn').addEventListener('click', function () { openModal(shortcutsModal); });
+    document.getElementById('shortcuts-close').addEventListener('click', closeAllOverlays);
+    shortcutsModal.addEventListener('click', function (e) {
+        if (e.target === shortcutsModal) closeAllOverlays();
+    });
+
+    // =========================================================
+    // Command palette
+    // =========================================================
+    var cmdInput = document.getElementById('cmd-input');
+    var cmdList = document.getElementById('cmd-list');
+    var cmdSelectedIndex = 0;
+    var cmdItems = [];
+
+    function buildCommands(query) {
+        var q = (query || '').trim().toLowerCase();
+        var base = [
+            { icon: '📝', label: 'Go to Transcribe', kbd: 'g t', action: function () { activateTab('transcribe'); urlInput.focus(); } },
+            { icon: '📦', label: 'Go to Batch', kbd: 'g b', action: function () { activateTab('batch'); batchUrls.focus(); } },
+            { icon: '📚', label: 'Go to Library', kbd: 'g l', action: function () { activateTab('library'); } },
+            { icon: '🌓', label: 'Toggle dark mode', kbd: 'Shift D', action: function () { themeToggle.click(); } },
+            { icon: '⚙', label: 'Open Settings', action: function () { document.getElementById('settings-open-button').click(); } },
+            { icon: '⌨', label: 'Keyboard shortcuts', kbd: '?', action: function () { openModal(shortcutsModal); } },
+            { icon: '🔄', label: 'Refresh Library', action: function () { activateTab('library'); document.getElementById('library-refresh-button').click(); } },
+            { icon: '📋', label: 'Paste URL from clipboard', action: function () { activateTab('transcribe'); pasteBtn.click(); } }
+        ];
+        // Library search if query has text
+        var entries = base.filter(function (c) { return !q || c.label.toLowerCase().indexOf(q) !== -1; });
+        if (q.length >= 2) {
+            // Add library search action
+            entries.unshift({
+                icon: '🔍',
+                label: 'Search library for "' + query + '"',
+                action: function () {
+                    activateTab('library');
+                    var ls = document.getElementById('library-search');
+                    if (ls) {
+                        ls.value = query;
+                        ls.dispatchEvent(new Event('input', { bubbles: true }));
+                        ls.focus();
+                    }
+                }
+            });
+            // Fetch library entries to suggest
+            // (uses cached fetch — keep it simple, no per-keystroke API call)
+        }
+        return entries;
+    }
+    function renderCommands() {
+        var query = cmdInput.value;
+        cmdItems = buildCommands(query);
+        cmdSelectedIndex = 0;
+        cmdList.innerHTML = '';
+        if (cmdItems.length === 0) {
+            var empty = document.createElement('div');
+            empty.className = 'cmd-empty';
+            empty.textContent = 'No matching commands';
+            cmdList.appendChild(empty);
+            return;
+        }
+        cmdItems.forEach(function (cmd, i) {
+            var item = document.createElement('div');
+            item.className = 'cmd-item' + (i === cmdSelectedIndex ? ' is-selected' : '');
+            item.innerHTML = '<span class="cmd-icon">' + cmd.icon + '</span><span>' + cmd.label.replace(/</g, '&lt;') + '</span>';
+            if (cmd.kbd) {
+                var kb = document.createElement('span');
+                kb.className = 'cmd-kbd';
+                kb.textContent = cmd.kbd;
+                item.appendChild(kb);
+            }
+            item.addEventListener('click', function () {
+                cmdPalette.classList.remove('is-open');
+                cmd.action();
+            });
+            item.addEventListener('mouseenter', function () {
+                cmdSelectedIndex = i;
+                updateSelection();
+            });
+            cmdList.appendChild(item);
+        });
+    }
+    function updateSelection() {
+        var items = cmdList.querySelectorAll('.cmd-item');
+        items.forEach(function (it, i) { it.classList.toggle('is-selected', i === cmdSelectedIndex); });
+        var sel = items[cmdSelectedIndex];
+        if (sel) sel.scrollIntoView({ block: 'nearest' });
+    }
+    function openCmdPalette() {
+        cmdInput.value = '';
+        renderCommands();
+        cmdPalette.classList.add('is-open');
+        setTimeout(function () { cmdInput.focus(); }, 30);
+    }
+    cmdInput.addEventListener('input', renderCommands);
+    cmdInput.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            cmdSelectedIndex = Math.min(cmdSelectedIndex + 1, cmdItems.length - 1);
+            updateSelection();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            cmdSelectedIndex = Math.max(cmdSelectedIndex - 1, 0);
+            updateSelection();
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            var cmd = cmdItems[cmdSelectedIndex];
+            if (cmd) {
+                cmdPalette.classList.remove('is-open');
+                cmd.action();
+            }
+        }
+    });
+    cmdPalette.addEventListener('click', function (e) {
+        if (e.target === cmdPalette) cmdPalette.classList.remove('is-open');
+    });
+    document.getElementById('cmdk-btn').addEventListener('click', openCmdPalette);
+
+    // =========================================================
+    // Persist common checkbox state
+    // =========================================================
+    [
+        'include-timestamps', 'include-metadata', 'paragraph-mode', 'generate-study-notes', 'batch-expand-playlists'
+    ].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var saved = lsGet('chk.' + id, null);
+        if (saved !== null) el.checked = saved === 'true';
+        el.addEventListener('change', function () { lsSet('chk.' + id, el.checked ? 'true' : 'false'); });
+    });
+
+    // =========================================================
+    // Welcome toast on first load (only once)
+    // =========================================================
+    if (!lsGet('seenWelcome', null)) {
+        setTimeout(function () {
+            toast('info', 'Tip: press ? for keyboard shortcuts, Ctrl+K for the command palette.', { ttl: 6000 });
+            lsSet('seenWelcome', 'true');
+        }, 800);
+    }
+})();
+</script>
 </body>
 </html>

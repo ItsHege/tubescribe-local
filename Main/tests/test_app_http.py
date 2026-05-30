@@ -59,7 +59,41 @@ def request_headers(base_url: str, path: str, headers=None, method=None):
         return exc.code, exc.headers
 
 
+def request_text(base_url: str, path: str):
+    try:
+        with urllib.request.urlopen(base_url + path, timeout=10) as response:
+            return response.status, response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode("utf-8", errors="replace")
+
+
 class AppHttpTests(unittest.TestCase):
+    def test_primary_ui_and_v2_alias(self):
+        with run_test_server() as base_url:
+            status, text = request_text(base_url, "/")
+            self.assertEqual(status, 200)
+            self.assertIn("TubeScribe Local", text)
+            self.assertIn('/static/app.css', text)
+            self.assertIn('/static/app.js', text)
+            self.assertIn("Command palette", text)
+            self.assertNotIn("Try UI v2", text)
+            self.assertNotIn("/v1", text)
+            self.assertNotIn("fonts.googleapis.com", text)
+
+            status, text = request_text(base_url, "/v2")
+            self.assertEqual(status, 200)
+            self.assertIn("TubeScribe Local", text)
+            self.assertIn('/static/app.css', text)
+            self.assertIn('/static/app.js', text)
+
+            status, text = request_text(base_url, "/v2/")
+            self.assertEqual(status, 200)
+            self.assertIn('/static/app.css', text)
+            self.assertIn('/static/app.js', text)
+
+            status, _ = request_text(base_url, "/v1")
+            self.assertEqual(status, 404)
+
     def test_cors_allows_only_matching_local_origin(self):
         with run_test_server() as base_url:
             parsed = urllib.parse.urlparse(base_url)

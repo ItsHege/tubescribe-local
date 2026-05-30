@@ -113,6 +113,11 @@ class AppHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed_path = urlparse(self.path)
 
+        if parsed_path.path in ("/v2", "/v2/"):
+            self.path = "/index.html"
+            super().do_GET()
+            return
+
         if parsed_path.path == "/api/health":
             active_clients = count_active_sessions()
             self.send_json(
