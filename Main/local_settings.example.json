@@ -1,0 +1,24 @@
+{
+  "study_guide_provider": "local",
+  "study_guide_profile_id": "",
+  "model_profiles": [
+    {
+      "id": "example-local-model",
+      "name": "Example local model",
+      "kind": "openai_compatible",
+      "base_url": "http://localhost:11434/v1",
+      "model": "llama3.1",
+      "api_key": ""
+    }
+  ],
+  "custom_topics": [],
+  "output_dir": "outputs",
+  "default_options": {
+    "include_timestamps": true,
+    "include_metadata": true,
+    "paragraph_mode": false,
+    "generate_study_notes": false
+  },
+  "batch_limit": 10,
+  "expand_playlists": false
+}

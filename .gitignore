@@ -1,0 +1,36 @@
+# Local runtime and generated data
+.env
+.env.*
+.venv/
+venv/
+Main/local_settings.json
+Main/local_settings.json.tmp
+Main/batch_jobs.json
+Main/batch_jobs.json.tmp
+Main/server.*.log
+Main/server.pid
+Main/outputs/
+*.zip
+*.db
+*.sqlite
+*.sqlite3
+
+# Python caches
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Editor and IDE state
+.vscode/
+.idea/
+
+# Local Codex/agent workspace state
+.codex/
+agents/
+notes/
+tasks/
+AGENTS.md
+PROJECT_DNA.md
+PROJECT_MEMORY_REFERENCE.md
+lessons_learned.md
+planas.md

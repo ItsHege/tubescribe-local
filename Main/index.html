@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TubeScribe Local</title>
+    <link rel="stylesheet" href="static/app.css">
+</head>
+<body>
+<main class="page">
+    <section class="hero">
+        <button id="settings-open-button" class="settings-button" type="button" aria-label="Settings" title="Settings">&#9881;</button>
+        <p class="eyebrow">Local web tool</p>
+        <h1>TubeScribe Local</h1>
+        <p class="lead">Paste a YouTube URL, run the tool, and it will try to fetch the video captions and save a Markdown transcript into your local library.</p>
+        <div class="note">
+            Works when the video has accessible subtitles or automatic captions.
+            The result is shown as Markdown and added to the library index.
+        </div>
+    </section>
+
+    <section class="panel">
+        <form id="transcribe-form" class="form">
+            <label for="youtube-url">YouTube URL</label>
+            <div class="form-row">
+                <input
+                    id="youtube-url"
+                    name="url"
+                    type="url"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    autocomplete="off"
+                    required
+                >
+                <button id="submit-button" type="submit">Transcribe</button>
+                <button id="tracks-button" class="secondary-button" type="button">Check Captions</button>
+            </div>
+
+            <div class="transcribe-options" aria-label="Transcription settings">
+                <div class="field">
+                    <label for="track-select">Caption Track</label>
+                    <select id="track-select" name="track_key">
+                        <option value="">Automatic selection</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label for="topic-select">Topic</label>
+                    <select id="topic-select" name="topic_override">
+                        <option value="">Automatic assignment</option>
+                    </select>
+                </div>
+
+                <label class="check-option" for="include-timestamps">
+                    <input id="include-timestamps" name="include_timestamps" type="checkbox" checked>
+                    <span>Timestamps</span>
+                </label>
+
+                <label class="check-option" for="include-metadata">
+                    <input id="include-metadata" name="include_metadata" type="checkbox" checked>
+                    <span>Metadata</span>
+                </label>
+
+                <label class="check-option" for="paragraph-mode">
+                    <input id="paragraph-mode" name="paragraph_mode" type="checkbox">
+                    <span>Paragraph mode</span>
+                </label>
+
+                <label class="check-option" for="generate-study-notes">
+                    <input id="generate-study-notes" name="generate_study_notes" type="checkbox">
+                    <span>Study notes</span>
+                </label>
+
+                <div class="field compact-field">
+                    <label for="start-seconds">Start seconds</label>
+                    <input
+                        id="start-seconds"
+                        name="start_seconds"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        inputmode="decimal"
+                        placeholder="Optional"
+                    >
+                </div>
+
+                <div class="field compact-field">
+                    <label for="end-seconds">End seconds</label>
+                    <input
+                        id="end-seconds"
+                        name="end_seconds"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        inputmode="decimal"
+                        placeholder="Optional"
+                    >
+                </div>
+            </div>
+
+            <div id="tracks-status" class="tracks-status" aria-live="polite">
+                Caption tracks have not been checked yet.
+            </div>
+        </form>
+
+        <div id="status-box" class="status status-idle">
+            Waiting for a URL. Paste a video link and I will prepare a Markdown transcript.
+        </div>
+
+        <form id="batch-form" class="batch-form">
+            <div class="batch-head">
+                <div>
+                    <p class="eyebrow">Batch</p>
+                    <h2>Queue</h2>
+                </div>
+                <div class="result-actions">
+                    <button id="batch-submit-button" class="secondary-button" type="submit">Process Batch</button>
+                    <button id="batch-pause-button" class="secondary-button" type="button" disabled>Pause</button>
+                    <button id="batch-resume-button" class="secondary-button" type="button" disabled>Resume</button>
+                    <button id="batch-cancel-button" class="secondary-button" type="button" disabled>Cancel</button>
+                    <a id="batch-zip-download" class="secondary-button is-hidden" href="#" download>Download ZIP</a>
+                    <button id="batch-clear-button" class="secondary-button" type="button">Clear</button>
+                </div>
+            </div>
+
+            <label for="batch-urls">Video URLs</label>
+            <textarea id="batch-urls" class="batch-textarea" placeholder="https://www.youtube.com/watch?v=..."></textarea>
+
+            <label class="check-option" for="batch-expand-playlists">
+                <input id="batch-expand-playlists" name="expand_playlists" type="checkbox">
+                <span>Expand playlists</span>
+            </label>
+
+            <div id="batch-status" class="batch-status batch-status-idle" aria-live="polite">
+                Batch queue is idle.
+            </div>
+
+            <div id="batch-list" class="batch-list"></div>
+        </form>
+    </section>
+
+    <section id="library-panel" class="panel library">
+        <div class="library-head">
+            <div>
+                <p class="eyebrow">Library</p>
+                <h2>Local Transcripts</h2>
+            </div>
+            <div class="result-actions">
+                <button id="study-guide-button" class="secondary-button" type="button">Generate Study Guide</button>
+                <button id="library-refresh-button" class="secondary-button" type="button">Refresh</button>
+            </div>
+        </div>
+
+        <div class="library-controls">
+            <label for="library-search">Search</label>
+            <input
+                id="library-search"
+                type="search"
+                placeholder="Search by title, channel, topic, or tags"
+                autocomplete="off"
+            >
+
+            <div id="library-topic-filter" class="topic-filter">
+                <label id="library-topic-label" for="library-topic-trigger">Topics</label>
+                <button
+                    id="library-topic-trigger"
+                    class="multi-select-trigger"
+                    type="button"
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    aria-labelledby="library-topic-label library-topic-summary"
+                >
+                    <span id="library-topic-summary">All topics</span>
+                    <span aria-hidden="true">v</span>
+                </button>
+                <div id="library-topic-menu" class="multi-select-menu is-hidden" role="group" aria-label="Topic filters">
+                    <div id="library-topic-options" class="multi-select-options"></div>
+                    <button id="library-topic-clear" class="inline-button" type="button">Clear topics</button>
+                </div>
+            </div>
+
+            <label for="library-channel-filter">Channel</label>
+            <select id="library-channel-filter">
+                <option value="">All channels</option>
+            </select>
+
+            <label for="library-language-filter">Language</label>
+            <select id="library-language-filter">
+                <option value="">All languages</option>
+            </select>
+
+            <div id="library-tag-filter" class="topic-filter">
+                <label id="library-tag-label" for="library-tag-trigger">Tags</label>
+                <button
+                    id="library-tag-trigger"
+                    class="multi-select-trigger"
+                    type="button"
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    aria-labelledby="library-tag-label library-tag-summary"
+                >
+                    <span id="library-tag-summary">All tags</span>
+                    <span aria-hidden="true">v</span>
+                </button>
+                <div id="library-tag-menu" class="multi-select-menu is-hidden" role="group" aria-label="Tag filters">
+                    <div id="library-tag-options" class="multi-select-options"></div>
+                    <button id="library-tag-clear" class="inline-button" type="button">Clear tags</button>
+                </div>
+            </div>
+
+            <label for="study-guide-provider">AI Engine</label>
+            <select id="study-guide-provider">
+                <option value="local">Local heuristic</option>
+            </select>
+        </div>
+
+        <div id="library-status" class="library-status">
+            Library has not loaded yet.
+        </div>
+
+        <div id="library-list" class="library-list" aria-live="polite"></div>
+
+        <div id="study-guide-panel" class="study-guide is-hidden">
+            <div class="library-preview-head">
+                <div>
+                    <p class="eyebrow">Learning</p>
+                    <h2 id="study-guide-title">Study Guide</h2>
+                </div>
+                <div class="result-actions">
+                    <button id="study-guide-copy" class="secondary-button" type="button">Copy Guide</button>
+                </div>
+            </div>
+
+            <div class="meta-grid">
+                <article class="meta-card">
+                    <span class="meta-label">Topic</span>
+                    <strong id="study-guide-topic">-</strong>
+                </article>
+                <article class="meta-card">
+                    <span class="meta-label">Sources</span>
+                    <strong id="study-guide-sources">-</strong>
+                </article>
+            </div>
+
+            <label for="study-guide-text">Generated Markdown</label>
+            <textarea id="study-guide-text" readonly spellcheck="false"></textarea>
+        </div>
+
+        <div id="library-preview" class="library-preview is-hidden">
+            <div class="library-preview-head">
+                <div>
+                    <p class="eyebrow">Preview</p>
+                    <h2 id="library-preview-title">Markdown Preview</h2>
+                </div>
+                <div class="result-actions">
+                    <button id="library-preview-copy" class="secondary-button" type="button">Copy MD</button>
+                    <a id="library-preview-source" class="secondary-button is-hidden" href="#" target="_blank" rel="noreferrer">YouTube</a>
+                    <a id="library-preview-download" class="download-link" href="#" download>Download MD</a>
+                </div>
+            </div>
+
+            <div class="meta-grid">
+                <article class="meta-card">
+                    <span class="meta-label">Topic</span>
+                    <strong id="library-preview-topic">-</strong>
+                </article>
+                <article class="meta-card">
+                    <span class="meta-label">Tags</span>
+                    <strong id="library-preview-tags">-</strong>
+                </article>
+                <article class="meta-card">
+                    <span class="meta-label">Channel</span>
+                    <strong id="library-preview-channel">-</strong>
+                </article>
+                <article class="meta-card">
+                    <span class="meta-label">Language</span>
+                    <strong id="library-preview-language">-</strong>
+                </article>
+                <article class="meta-card">
+                    <span class="meta-label">Created</span>
+                    <strong id="library-preview-created">-</strong>
+                </article>
+                <article class="meta-card">
+                    <span class="meta-label">MD File</span>
+                    <strong id="library-preview-path">-</strong>
+                </article>
+            </div>
+
+            <label for="library-preview-text">Markdown Transcript</label>
+            <textarea id="library-preview-text" readonly spellcheck="false"></textarea>
+        </div>
+    </section>
+
+    <div id="settings-modal" class="modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="modal-backdrop" data-settings-close="true"></div>
+        <section class="modal-dialog settings" aria-describedby="settings-description">
+            <div class="library-head">
+                <div>
+                    <p class="eyebrow">Settings</p>
+                    <h2 id="settings-title">Generation Providers</h2>
+                </div>
+                <button id="settings-close-button" class="secondary-button" type="button" data-settings-close="true">Close</button>
+            </div>
+
+            <div id="settings-description" class="settings-note">
+                Local heuristic keeps transcript text on this machine. API profiles send selected transcript excerpts only when you choose that engine.
+            </div>
+
+            <form id="settings-form" class="settings-form">
+                <div class="field">
+                    <label for="default-study-guide-provider">Default Study Guide Engine</label>
+                    <select id="default-study-guide-provider" name="study_guide_provider">
+                        <option value="local">Local heuristic</option>
+                    </select>
+                </div>
+
+                <div class="settings-profile-grid">
+                    <div class="field">
+                        <label for="settings-output-dir">Output Folder</label>
+                        <input id="settings-output-dir" name="output_dir" type="text" placeholder="outputs" autocomplete="off">
+                    </div>
+
+                    <div class="field">
+                        <label for="settings-batch-limit">Batch Limit</label>
+                        <input id="settings-batch-limit" name="batch_limit" type="number" min="1" max="25" step="1" inputmode="numeric">
+                    </div>
+                </div>
+
+                <div class="transcribe-options" aria-label="Default transcription settings">
+                    <label class="check-option" for="settings-default-timestamps">
+                        <input id="settings-default-timestamps" name="default_include_timestamps" type="checkbox">
+                        <span>Default timestamps</span>
+                    </label>
+
+                    <label class="check-option" for="settings-default-metadata">
+                        <input id="settings-default-metadata" name="default_include_metadata" type="checkbox">
+                        <span>Default metadata</span>
+                    </label>
+
+                    <label class="check-option" for="settings-default-paragraph">
+                        <input id="settings-default-paragraph" name="default_paragraph_mode" type="checkbox">
+                        <span>Default paragraph mode</span>
+                    </label>
+
+                    <label class="check-option" for="settings-default-study-notes">
+                        <input id="settings-default-study-notes" name="default_generate_study_notes" type="checkbox">
+                        <span>Default study notes</span>
+                    </label>
+
+                    <label class="check-option" for="settings-expand-playlists">
+                        <input id="settings-expand-playlists" name="expand_playlists" type="checkbox">
+                        <span>Default playlist expansion</span>
+                    </label>
+                </div>
+
+                <div class="settings-model-head">
+                    <div>
+                        <h3>Model Profiles</h3>
+                        <p>Add OpenAI-compatible cloud or local model servers.</p>
+                    </div>
+                    <button id="settings-add-model-button" class="secondary-button" type="button">+ Add Model</button>
+                </div>
+
+                <div id="settings-profile-list" class="settings-profile-list"></div>
+
+                <div class="settings-actions">
+                    <button id="settings-save-button" type="submit">Save Settings</button>
+                </div>
+            </form>
+
+            <div id="settings-status" class="status status-idle">
+                Settings are stored locally on this machine.
+            </div>
+        </section>
+    </div>
+
+    <section id="result-panel" class="panel result is-hidden">
+        <div class="result-head">
+            <div>
+                <p class="eyebrow">Result</p>
+                <h2 id="result-title">Markdown Transcript Ready</h2>
+            </div>
+            <div class="result-actions">
+                <button id="copy-md-button" class="secondary-button" type="button">Copy MD</button>
+                <a id="download-link" class="download-link" href="#" download>Download MD</a>
+            </div>
+        </div>
+
+        <div class="meta-grid">
+            <article class="meta-card">
+                <span class="meta-label">Topic</span>
+                <strong id="meta-topic">-</strong>
+            </article>
+            <article class="meta-card">
+                <span class="meta-label">Tags</span>
+                <strong id="meta-tags">-</strong>
+            </article>
+            <article class="meta-card">
+                <span class="meta-label">Channel</span>
+                <strong id="meta-channel">-</strong>
+            </article>
+            <article class="meta-card">
+                <span class="meta-label">Language</span>
+                <strong id="meta-language">-</strong>
+            </article>
+            <article class="meta-card">
+                <span class="meta-label">Source</span>
+                <strong id="meta-source">-</strong>
+            </article>
+            <article class="meta-card">
+                <span class="meta-label">Segments</span>
+                <strong id="meta-segments">-</strong>
+            </article>
+            <article class="meta-card">
+                <span class="meta-label">Duration</span>
+                <strong id="meta-duration">-</strong>
+            </article>
+            <article class="meta-card">
+                <span class="meta-label">Study Notes</span>
+                <strong id="meta-study-notes">-</strong>
+            </article>
+            <article class="meta-card">
+                <span class="meta-label">MD File</span>
+                <strong id="meta-file">-</strong>
+            </article>
+        </div>
+
+        <label for="transcript-output">Markdown Transcript</label>
+        <textarea id="transcript-output" readonly spellcheck="false"></textarea>
+    </section>
+</main>
+
+<script src="static/app.js?v=20260530-topic-tag-dropdown-filter"></script>
+</body>
+</html>
