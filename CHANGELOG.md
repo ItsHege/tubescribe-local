@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.2.0 - 2026-05-31
+
+### Added
+
+- Added a GitHub Actions test workflow for unit tests, Python compile checks, and frontend JavaScript syntax checks.
+- Refreshed the primary web UI with the new workspace layout, compact Library cards, improved Settings, and clearer long-running action feedback.
+- Added local diagnostics for the caption engine, including yt-dlp package/CLI status in Settings.
+- Added troubleshooting notes for local startup, captions, rate limits, output folders, and local model endpoints.
+- Added Library `Repair Index` flow to rebuild `library.json` from transcript Markdown files.
+- Documented the Markdown/frontmatter, sidecar JSON, and `library.json` schema in `docs/library-schema.md`.
+- Added README screenshots and a short example Markdown transcript structure in `docs/examples/sample-transcript.md`.
+- Added a saved model profile `Test` action that checks OpenAI-compatible chat completions without sending transcript data.
+- Added stricter AI topic classification JSON schema validation before metadata is saved.
+- Added Study Guide generation progress with step states, elapsed waiting time, and a single-flight UI lock to prevent duplicate model requests.
+
+### Fixed
+
+- Made API-generated Study Guides configurable per model profile with source count, input character budget and output token budget, so small local models can be kept safe while large-context LM Studio models can receive much more transcript context.
+
 ## v0.1.0 - 2026-05-31
 
 ### Added

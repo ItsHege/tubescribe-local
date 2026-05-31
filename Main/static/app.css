@@ -539,6 +539,68 @@ button:disabled{
     gap:12px;
 }
 
+.diagnostics-panel{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:12px;
+    padding:14px;
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:#fff;
+}
+
+.diagnostics-panel h3{
+    margin:0;
+    font-size:17px;
+}
+
+.diagnostics-panel p{
+    margin-top:6px;
+    color:var(--muted);
+}
+
+.diagnostics-panel-ok{
+    border-color:#bddfc9;
+}
+
+.diagnostics-panel-warning{
+    border-color:var(--warn-border);
+}
+
+.diagnostics-panel-error{
+    border-color:var(--error-border);
+}
+
+.diagnostics-details{
+    grid-column:1 / -1;
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:8px;
+    margin:0;
+}
+
+.diagnostics-details div{
+    min-width:0;
+    padding:10px;
+    border:1px solid var(--line);
+    border-radius:10px;
+    background:#fffaf2;
+}
+
+.diagnostics-details dt{
+    color:var(--muted);
+    font-size:12px;
+    font-weight:800;
+    text-transform:uppercase;
+}
+
+.diagnostics-details dd{
+    margin:4px 0 0;
+    overflow-wrap:anywhere;
+    color:var(--ink);
+    font-weight:700;
+}
+
 .settings-model-head{
     display:flex;
     align-items:flex-start;
@@ -943,6 +1005,8 @@ button:disabled{
         align-items:start;
     }
 
+    .diagnostics-panel,
+    .diagnostics-details,
     .settings-model-head,
     .settings-profile-head{
         display:grid;

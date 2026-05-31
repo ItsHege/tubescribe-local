@@ -42,6 +42,7 @@
     var downloadLink = document.getElementById('download-link');
     var copyMdButton = document.getElementById('copy-md-button');
     var libraryRefreshButton = document.getElementById('library-refresh-button');
+    var libraryRebuildButton = document.getElementById('library-rebuild-button');
     var studyGuideButton = document.getElementById('study-guide-button');
     var librarySearch = document.getElementById('library-search');
     var libraryTopicFilter = document.getElementById('library-topic-filter');
@@ -79,6 +80,8 @@
     var studyGuideTopic = document.getElementById('study-guide-topic');
     var studyGuideSources = document.getElementById('study-guide-sources');
     var studyGuideText = document.getElementById('study-guide-text');
+    var studyGuideProgress = document.getElementById('study-guide-progress');
+    var studyGuideStageSteps = document.querySelectorAll('#study-guide-stage-list .stage-step');
     var settingsOpenButton = document.getElementById('settings-open-button');
     var settingsModal = document.getElementById('settings-modal');
     var settingsForm = document.getElementById('settings-form');
@@ -94,6 +97,12 @@
     var settingsAddModelButton = document.getElementById('settings-add-model-button');
     var settingsSaveButton = document.getElementById('settings-save-button');
     var settingsStatus = document.getElementById('settings-status');
+    var diagnosticsPanel = document.querySelector('.diagnostics-panel');
+    var diagnosticsSummary = document.getElementById('diagnostics-summary');
+    var diagnosticsRefreshButton = document.getElementById('diagnostics-refresh-button');
+    var diagnosticsModuleVersion = document.getElementById('diagnostics-module-version');
+    var diagnosticsCliVersion = document.getElementById('diagnostics-cli-version');
+    var diagnosticsOutputFolder = document.getElementById('diagnostics-output-folder');
     var heartbeatTimer = null;
     var libraryEntries = [];
     var modelProfiles = [];
@@ -102,6 +111,11 @@
     var currentBatchJobId = '';
     var MAX_BATCH_URLS = 10;
     var topicClassificationRunning = {};
+    var studyGuideRunning = false;
+    var studyGuideTimers = [];
+    var studyGuideElapsedTimer = null;
+    var studyGuideStartedAt = 0;
+    var studyGuideButtonLabel = studyGuideButton ? studyGuideButton.textContent : 'Generate Study Guide';
 
     function setStatus(kind, message) {
         statusBox.className = 'status status-' + kind;
@@ -266,6 +280,59 @@
         settingsStatus.textContent = message;
     }
 
+    function setDiagnosticsPanel(kind, message) {
+        if (diagnosticsPanel) {
+            diagnosticsPanel.className = 'diagnostics-panel diagnostics-panel-' + kind;
+        }
+        if (diagnosticsSummary) {
+            diagnosticsSummary.textContent = message;
+        }
+    }
+
+    function renderDiagnostics(diagnostics) {
+        var ytDlp = diagnostics && diagnostics.yt_dlp ? diagnostics.yt_dlp : {};
+        var status = ytDlp.status || 'warning';
+        var message = ytDlp.message || 'Could not read local caption engine status.';
+        setDiagnosticsPanel(status, message);
+
+        if (diagnosticsModuleVersion) {
+            diagnosticsModuleVersion.textContent = ytDlp.module_version || (ytDlp.available ? 'available' : 'not available');
+        }
+        if (diagnosticsCliVersion) {
+            diagnosticsCliVersion.textContent = ytDlp.cli_available
+                ? [ytDlp.cli_version || 'available', ytDlp.cli_path].filter(Boolean).join(' · ')
+                : 'not on PATH';
+        }
+    }
+
+    async function loadDiagnostics() {
+        if (!diagnosticsPanel) {
+            return;
+        }
+
+        setDiagnosticsPanel('loading', 'Checking local yt-dlp status...');
+        if (diagnosticsRefreshButton) {
+            diagnosticsRefreshButton.disabled = true;
+        }
+
+        try {
+            var data = await getJson('/api/diagnostics');
+            renderDiagnostics(data.diagnostics || {});
+        } catch (error) {
+            setDiagnosticsPanel('error', 'Could not read local diagnostics from the server.');
+            if (diagnosticsModuleVersion) {
+                diagnosticsModuleVersion.textContent = '-';
+            }
+            if (diagnosticsCliVersion) {
+                diagnosticsCliVersion.textContent = '-';
+            }
+        } finally {
+            if (diagnosticsRefreshButton) {
+                diagnosticsRefreshButton.disabled = false;
+            }
+        }
+    }
+
     function clearNode(node) {
         while (node && node.firstChild) {
             node.removeChild(node.firstChild);
@@ -418,9 +485,29 @@
                     kind: 'openai_compatible',
                     base_url: String(profile.base_url || ''),
                     model: String(profile.model || ''),
+                    study_guide_max_sources: toPositiveInt(profile.study_guide_max_sources, 8),
+                    study_guide_input_chars: toPositiveInt(profile.study_guide_input_chars, 24000),
+                    study_guide_output_tokens: toPositiveInt(profile.study_guide_output_tokens, 1000),
                     api_key_set: Boolean(profile.api_key_set)
                 };
             });
+    }
+
+    function toPositiveInt(value, fallback) {
+        var parsed = parseInt(value, 10);
+        if (!Number.isFinite(parsed) || parsed < 1) {
+            return fallback;
+        }
+        return parsed;
+    }
+
+    function findModelProfile(profileId) {
+        for (var index = 0; index < modelProfiles.length; index += 1) {
+            if (modelProfiles[index].id === profileId) {
+                return modelProfiles[index];
+            }
+        }
+        return null;
     }
 
     function makeProfileId(name) {
@@ -471,6 +558,9 @@
 
         if (settingsOutputDir) {
             settingsOutputDir.value = settings.output_dir || 'outputs';
+        }
+        if (diagnosticsOutputFolder) {
+            diagnosticsOutputFolder.textContent = settings.resolved_output_dir || settings.output_dir || 'outputs';
         }
         if (settingsBatchLimit) {
             settingsBatchLimit.value = String(MAX_BATCH_URLS);
@@ -603,6 +693,16 @@
             });
             actions.appendChild(editButton);
 
+            var testButton = document.createElement('button');
+            testButton.type = 'button';
+            testButton.className = 'secondary-button';
+            testButton.textContent = 'Test';
+            testButton.disabled = !profile.api_key_set;
+            testButton.addEventListener('click', function () {
+                testModelProfile(profile);
+            });
+            actions.appendChild(testButton);
+
             var removeButton = document.createElement('button');
             removeButton.type = 'button';
             removeButton.className = 'secondary-button';
@@ -629,6 +729,9 @@
             grid.appendChild(createField('API Base URL', 'url', profile.base_url, 'http://localhost:11434/v1', 'base_url'));
             grid.appendChild(createField('Model', 'text', profile.model, 'llama3.1 or gpt-4.1-mini', 'model'));
             grid.appendChild(createField('API Key', 'password', '', 'Leave blank to keep existing key', 'api_key'));
+            grid.appendChild(createField('Study Guide Sources', 'number', profile.study_guide_max_sources, '8', 'study_guide_max_sources'));
+            grid.appendChild(createField('Input Budget (chars)', 'number', profile.study_guide_input_chars, '24000', 'study_guide_input_chars'));
+            grid.appendChild(createField('Output Tokens', 'number', profile.study_guide_output_tokens, '1000', 'study_guide_output_tokens'));
             article.appendChild(grid);
 
             settingsProfileList.appendChild(article);
@@ -669,6 +772,9 @@
                 kind: 'openai_compatible',
                 base_url: fieldValue('base_url'),
                 model: fieldValue('model'),
+                study_guide_max_sources: toPositiveInt(fieldValue('study_guide_max_sources'), existing.study_guide_max_sources || 8),
+                study_guide_input_chars: toPositiveInt(fieldValue('study_guide_input_chars'), existing.study_guide_input_chars || 24000),
+                study_guide_output_tokens: toPositiveInt(fieldValue('study_guide_output_tokens'), existing.study_guide_output_tokens || 1000),
                 api_key: fieldValue('api_key'),
                 api_key_set: Boolean(existing.api_key_set),
                 expanded: Boolean(existing.expanded),
@@ -695,6 +801,9 @@
             kind: 'openai_compatible',
             base_url: '',
             model: '',
+            study_guide_max_sources: 8,
+            study_guide_input_chars: 24000,
+            study_guide_output_tokens: 1000,
             api_key_set: false,
             expanded: true,
             focus_name: true
@@ -704,12 +813,42 @@
         setSettingsStatus('idle', 'New model profile added. Fill in the profile fields and save settings.');
     }
 
+    async function testModelProfile(profile) {
+        if (!profile || !profile.id) {
+            setSettingsStatus('error', 'Save this model profile before testing it.');
+            return;
+        }
+
+        setSettingsStatus('loading', 'Testing model connection without sending transcript data...');
+        try {
+            var response = await postJson('/api/settings/test-model', { profile_id: profile.id });
+            var data = await response.json().catch(function () {
+                return {};
+            });
+
+            if (!response.ok || !data.ok) {
+                setSettingsStatus('error', data.message || 'Could not test this model profile.');
+                return;
+            }
+
+            var result = data.result || {};
+            var jsonLabel = result.json_response ? 'JSON response OK' : 'chat OK, JSON response not confirmed';
+            setSettingsStatus(
+                'success',
+                'Model test passed for ' + (result.profile_name || profile.name || 'profile') + ': ' + jsonLabel + '.'
+            );
+        } catch (error) {
+            setSettingsStatus('error', 'Could not reach the local server while testing this model profile.');
+        }
+    }
+
     function openSettingsModal() {
         if (!settingsModal) {
             return;
         }
 
         settingsModal.classList.remove('is-hidden');
+        loadDiagnostics();
         if (defaultStudyGuideProvider) {
             defaultStudyGuideProvider.focus();
         }
@@ -1549,6 +1688,9 @@
         if (libraryRefreshButton) {
             libraryRefreshButton.disabled = true;
         }
+        if (libraryRebuildButton) {
+            libraryRebuildButton.disabled = true;
+        }
 
         try {
             var data = await getJson('/api/library');
@@ -1563,6 +1705,64 @@
         } finally {
             if (libraryRefreshButton) {
                 libraryRefreshButton.disabled = false;
+            }
+            if (libraryRebuildButton) {
+                libraryRebuildButton.disabled = false;
+            }
+        }
+    }
+
+    async function rebuildLibraryIndex() {
+        if (!libraryList) {
+            return;
+        }
+
+        setLibraryStatus('loading', 'Repairing library index from Markdown files...');
+        if (libraryRefreshButton) {
+            libraryRefreshButton.disabled = true;
+        }
+        if (libraryRebuildButton) {
+            libraryRebuildButton.disabled = true;
+        }
+
+        try {
+            var response = await postJson('/api/library/rebuild', {});
+            var data = await response.json().catch(function () {
+                return {};
+            });
+
+            if (!response.ok || !data.ok) {
+                setLibraryStatus('error', data.message || 'Could not repair the library index.');
+                return;
+            }
+
+            var result = data.result || {};
+            libraryEntries = Array.isArray(result.entries) ? result.entries : [];
+            updateLibraryFilters();
+            renderLibrary();
+
+            var skipped = Number(result.skipped_count || 0);
+            var removed = Number(result.removed_stale_count || 0);
+            var details = [];
+            if (removed) {
+                details.push(removed + ' stale entr' + (removed === 1 ? 'y' : 'ies') + ' removed');
+            }
+            if (skipped) {
+                details.push(skipped + ' non-transcript file' + (skipped === 1 ? '' : 's') + ' skipped');
+            }
+
+            setLibraryStatus(
+                'success',
+                'Library index repaired: ' + (result.entries_count || 0) + ' entr' + (result.entries_count === 1 ? 'y' : 'ies') + ' indexed' + (details.length ? ' · ' + details.join(' · ') : '') + '.'
+            );
+        } catch (error) {
+            setLibraryStatus('error', 'Could not reach the local server while repairing the library index.');
+        } finally {
+            if (libraryRefreshButton) {
+                libraryRefreshButton.disabled = false;
+            }
+            if (libraryRebuildButton) {
+                libraryRebuildButton.disabled = false;
             }
         }
     }
@@ -1603,26 +1803,150 @@
         }
     }
 
+    function stopStudyGuideProgressTimers() {
+        studyGuideTimers.forEach(clearTimeout);
+        studyGuideTimers = [];
+        if (studyGuideElapsedTimer) {
+            clearInterval(studyGuideElapsedTimer);
+            studyGuideElapsedTimer = null;
+        }
+    }
+
+    function resetStudyGuideProgress() {
+        Array.prototype.forEach.call(studyGuideStageSteps, function (step, index) {
+            step.classList.remove('is-active', 'is-done', 'is-error');
+            step.classList.add('is-pending');
+            var icon = step.querySelector('.stage-icon');
+            var detail = step.querySelector('.stage-detail');
+            if (icon) {
+                icon.textContent = String(index + 1);
+            }
+            if (detail) {
+                detail.textContent = '';
+            }
+        });
+    }
+
+    function setStudyGuideStage(name, state, detail) {
+        Array.prototype.forEach.call(studyGuideStageSteps, function (step) {
+            if (step.getAttribute('data-stage') !== name) {
+                return;
+            }
+            step.classList.remove('is-pending', 'is-active', 'is-done', 'is-error');
+            step.classList.add('is-' + state);
+            if (state === 'done' || state === 'error') {
+                var icon = step.querySelector('.stage-icon');
+                if (icon) {
+                    icon.textContent = '';
+                }
+            }
+            if (detail !== undefined) {
+                var detailEl = step.querySelector('.stage-detail');
+                if (detailEl) {
+                    detailEl.textContent = detail;
+                }
+            }
+        });
+    }
+
+    function studyGuideElapsedSeconds() {
+        if (!studyGuideStartedAt) {
+            return 0;
+        }
+        return Math.max(0, Math.round((Date.now() - studyGuideStartedAt) / 1000));
+    }
+
+    function updateStudyGuideWaitDetail(engineLabel) {
+        setStudyGuideStage('model', 'active', 'Waiting ' + studyGuideElapsedSeconds() + 's for ' + engineLabel + '.');
+    }
+
+    function startStudyGuideProgress(engineLabel, sourceLimit) {
+        stopStudyGuideProgressTimers();
+        studyGuideStartedAt = Date.now();
+        resetStudyGuideProgress();
+        if (studyGuideProgress) {
+            studyGuideProgress.classList.add('is-active');
+        }
+        setStudyGuideStage('sources', 'active', 'Using up to ' + sourceLimit + ' source(s).');
+        studyGuideTimers.push(setTimeout(function () {
+            setStudyGuideStage('sources', 'done', 'Sources selected.');
+            setStudyGuideStage('request', 'active', 'Preparing request.');
+        }, 500));
+        studyGuideTimers.push(setTimeout(function () {
+            setStudyGuideStage('request', 'done', 'Request sent.');
+            updateStudyGuideWaitDetail(engineLabel);
+        }, 1200));
+        studyGuideElapsedTimer = setInterval(function () {
+            updateStudyGuideWaitDetail(engineLabel);
+        }, 1000);
+    }
+
+    function finishStudyGuideProgress(success, detail) {
+        stopStudyGuideProgressTimers();
+        if (success) {
+            setStudyGuideStage('sources', 'done', 'Sources selected.');
+            setStudyGuideStage('request', 'done', 'Request completed.');
+            setStudyGuideStage('model', 'done', detail || 'Model responded.');
+            setStudyGuideStage('render', 'done', 'Guide rendered.');
+            setTimeout(function () {
+                if (studyGuideProgress) {
+                    studyGuideProgress.classList.remove('is-active');
+                }
+            }, 1800);
+            return;
+        }
+
+        var marked = false;
+        Array.prototype.forEach.call(studyGuideStageSteps, function (step) {
+            if (!marked && step.classList.contains('is-active')) {
+                setStudyGuideStage(step.getAttribute('data-stage'), 'error', detail || 'Stopped.');
+                marked = true;
+            }
+        });
+        if (!marked) {
+            setStudyGuideStage('model', 'error', detail || 'Stopped.');
+        }
+    }
+
+    function setStudyGuideBusy(isBusy) {
+        if (!studyGuideButton) {
+            return;
+        }
+        studyGuideButton.disabled = isBusy;
+        studyGuideButton.textContent = isBusy ? 'Generating...' : studyGuideButtonLabel;
+        studyGuideButton.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+    }
+
     async function generateStudyGuide() {
         if (!studyGuidePanel || !studyGuideText) {
+            return;
+        }
+
+        if (studyGuideRunning) {
+            setLibraryStatus('loading', 'Study guide generation is already running (' + studyGuideElapsedSeconds() + 's). Please wait for it to finish.');
             return;
         }
 
         var selectedTopics = getSelectedLibraryTopics();
         var topic = selectedTopics.length === 1 ? selectedTopics[0] : '';
         var engine = parseProviderValue(studyGuideProvider ? studyGuideProvider.value : 'local');
-        var engineLabel = engine.provider === 'api' ? 'API model' : 'local heuristic';
+        var engineProfile = engine.provider === 'api' && engine.profile_id ? findModelProfile(engine.profile_id) : null;
+        var engineLabel = engine.provider === 'api' ? ((engineProfile && engineProfile.name) || 'API model') : 'local heuristic';
         var topicLabel = selectedTopics.length ? selectedTopics.length + ' selected topic(s)' : 'the library';
-        setLibraryStatus('loading', 'Generating a study guide from ' + topicLabel + ' with the ' + engineLabel + '...');
-        if (studyGuideButton) {
-            studyGuideButton.disabled = true;
+        var maxSources = 8;
+        if (engine.provider === 'api' && engineProfile) {
+            maxSources = toPositiveInt(engineProfile.study_guide_max_sources, 8);
         }
+        setLibraryStatus('loading', 'Generating a study guide from ' + topicLabel + ' with the ' + engineLabel + '...');
+        studyGuideRunning = true;
+        setStudyGuideBusy(true);
+        startStudyGuideProgress(engineLabel, maxSources);
 
         try {
             var response = await postJson('/api/library/study-guide', {
                 topic: topic,
                 topics: selectedTopics,
-                max_sources: 8,
+                max_sources: maxSources,
                 provider: engine.provider,
                 profile_id: engine.profile_id
             });
@@ -1631,6 +1955,7 @@
             });
 
             if (!response.ok || !data.ok) {
+                finishStudyGuideProgress(false, data.message || 'Generation failed.');
                 setLibraryStatus('error', data.message || 'Could not generate a study guide from the library.');
                 return;
             }
@@ -1644,13 +1969,14 @@
             ].filter(Boolean).join(' · ');
             studyGuideText.value = result.guide_text || '';
             studyGuidePanel.classList.remove('is-hidden');
+            finishStudyGuideProgress(true, 'Model responded in ' + studyGuideElapsedSeconds() + 's.');
             setLibraryStatus('success', 'Study guide generated from ' + (result.sources_count || 0) + ' source(s) with ' + (result.provider_label || engineLabel) + '.');
         } catch (error) {
+            finishStudyGuideProgress(false, 'Server request failed.');
             setLibraryStatus('error', 'Could not reach the local server while generating the study guide.');
         } finally {
-            if (studyGuideButton) {
-                studyGuideButton.disabled = false;
-            }
+            studyGuideRunning = false;
+            setStudyGuideBusy(false);
         }
     }
 
@@ -1833,6 +2159,10 @@
         settingsAddModelButton.addEventListener('click', addModelProfile);
     }
 
+    if (diagnosticsRefreshButton) {
+        diagnosticsRefreshButton.addEventListener('click', loadDiagnostics);
+    }
+
     if (defaultStudyGuideProvider) {
         defaultStudyGuideProvider.addEventListener('change', function () {
             modelProfiles = collectModelProfiles();
@@ -1973,6 +2303,10 @@
 
     if (libraryRefreshButton) {
         libraryRefreshButton.addEventListener('click', loadLibrary);
+    }
+
+    if (libraryRebuildButton) {
+        libraryRebuildButton.addEventListener('click', rebuildLibraryIndex);
     }
 
     if (librarySearch) {

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import io
+import importlib.metadata
 import json
 import mimetypes
 import os
 import re
+import shutil
+import subprocess
 import threading
 import time
 import urllib.error
@@ -20,6 +23,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from yt_dlp import YoutubeDL
 
 from transcriber import (
+    LIBRARY_SCHEMA_VERSION,
     TranscriptionError,
     classify_topic,
     humanize_topic,
@@ -60,6 +64,13 @@ DEFAULT_SETTINGS = {
     "batch_limit": 10,
     "expand_playlists": False,
 }
+
+API_STUDY_GUIDE_SOURCE_BUDGET_CHARS = 24000
+API_STUDY_GUIDE_MIN_EXCERPT_CHARS = 500
+API_STUDY_GUIDE_MAX_TOKENS = 1000
+API_STUDY_GUIDE_MAX_SOURCES = 8
+API_STUDY_GUIDE_MAX_INPUT_CHARS = 300000
+API_STUDY_GUIDE_MAX_OUTPUT_TOKENS = 8192
 BATCH_LOCK = threading.Lock()
 BATCH_JOBS = {}
 BATCH_JOB_TTL_SECONDS = 6 * 60 * 60
@@ -131,6 +142,10 @@ class AppHandler(SimpleHTTPRequestHandler):
             )
             return
 
+        if parsed_path.path == "/api/diagnostics":
+            self.send_json(HTTPStatus.OK, {"ok": True, "diagnostics": get_diagnostics()})
+            return
+
         if parsed_path.path == "/api/library":
             self.send_json(HTTPStatus.OK, {"ok": True, "entries": load_library_entries()})
             return
@@ -166,14 +181,14 @@ class AppHandler(SimpleHTTPRequestHandler):
             try:
                 zip_bytes = build_batch_zip(job_id)
             except TranscriptionError as exc:
-                self.send_json(
-                    HTTPStatus.BAD_REQUEST,
-                    {
-                        "ok": False,
-                        "error_code": exc.code,
-                        "message": exc.user_message,
-                    },
-                )
+                error_payload = {
+                    "ok": False,
+                    "error_code": exc.code,
+                    "message": exc.user_message,
+                }
+                if exc.technical_message and exc.technical_message != exc.user_message:
+                    error_payload["details"] = exc.technical_message[:500]
+                self.send_json(HTTPStatus.BAD_REQUEST, error_payload)
                 return
 
             filename = f"batch-{job_id[:10] or 'results'}.zip"
@@ -337,6 +352,27 @@ class AppHandler(SimpleHTTPRequestHandler):
             try:
                 saved_settings = save_settings_from_payload(payload)
             except TranscriptionError as exc:
+                error_payload = {
+                    "ok": False,
+                    "error_code": exc.code,
+                    "message": exc.user_message,
+                }
+                if exc.technical_message and exc.technical_message != exc.user_message:
+                    error_payload["details"] = exc.technical_message[:500]
+                self.send_json(HTTPStatus.BAD_REQUEST, error_payload)
+                return
+
+            self.send_json(HTTPStatus.OK, {"ok": True, "settings": public_settings(saved_settings)})
+            return
+
+        if self.path == "/api/settings/test-model":
+            payload = self.read_json_body()
+            if payload is None:
+                return
+
+            try:
+                result = test_model_profile(str(payload.get("profile_id", "")).strip())
+            except TranscriptionError as exc:
                 self.send_json(
                     HTTPStatus.BAD_REQUEST,
                     {
@@ -346,8 +382,51 @@ class AppHandler(SimpleHTTPRequestHandler):
                     },
                 )
                 return
+            except Exception as exc:
+                self.send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error_code": "server_error",
+                        "message": "An unexpected server error occurred while testing this model profile.",
+                        "details": str(exc),
+                    },
+                )
+                return
 
-            self.send_json(HTTPStatus.OK, {"ok": True, "settings": public_settings(saved_settings)})
+            self.send_json(HTTPStatus.OK, {"ok": True, "result": result})
+            return
+
+        if self.path == "/api/library/rebuild":
+            payload = self.read_json_body()
+            if payload is None:
+                return
+
+            try:
+                result = rebuild_library_index()
+            except TranscriptionError as exc:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error_code": exc.code,
+                        "message": exc.user_message,
+                    },
+                )
+                return
+            except Exception as exc:
+                self.send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error_code": "server_error",
+                        "message": "An unexpected server error occurred while rebuilding the library index.",
+                        "details": str(exc),
+                    },
+                )
+                return
+
+            self.send_json(HTTPStatus.OK, {"ok": True, "result": result})
             return
 
         if self.path == "/api/library/study-guide":
@@ -364,14 +443,14 @@ class AppHandler(SimpleHTTPRequestHandler):
                     profile_id=str(payload.get("profile_id", "")).strip() or None,
                 )
             except TranscriptionError as exc:
-                self.send_json(
-                    HTTPStatus.BAD_REQUEST,
-                    {
-                        "ok": False,
-                        "error_code": exc.code,
-                        "message": exc.user_message,
-                    },
-                )
+                error_payload = {
+                    "ok": False,
+                    "error_code": exc.code,
+                    "message": exc.user_message,
+                }
+                if exc.technical_message and exc.technical_message != exc.user_message:
+                    error_payload["details"] = exc.technical_message[:500]
+                self.send_json(HTTPStatus.BAD_REQUEST, error_payload)
                 return
             except Exception as exc:
                 self.send_json(
@@ -627,6 +706,71 @@ def cleanup_expired_sessions(now: float | None = None):
 
 def count_active_sessions() -> int:
     return cleanup_expired_sessions()
+
+
+def get_diagnostics() -> dict:
+    return {
+        "yt_dlp": get_yt_dlp_diagnostics(),
+    }
+
+
+def get_yt_dlp_diagnostics() -> dict:
+    module_version = ""
+    try:
+        module_version = importlib.metadata.version("yt-dlp")
+    except importlib.metadata.PackageNotFoundError:
+        module_version = ""
+
+    cli_path = shutil.which("yt-dlp") or ""
+    cli_version = ""
+    cli_error = ""
+
+    if cli_path:
+        try:
+            completed = subprocess.run(
+                [cli_path, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            stdout_lines = (completed.stdout or "").strip().splitlines()
+            cli_version = stdout_lines[0] if stdout_lines else ""
+            if completed.returncode != 0:
+                cli_error = (completed.stderr or "yt-dlp --version failed.").strip()
+        except (OSError, subprocess.SubprocessError) as exc:
+            cli_error = str(exc)
+
+    hints = [
+        "Keep yt-dlp updated if YouTube captions suddenly stop working.",
+        "PO Token, cookies, or account-based access are not used by default and should stay explicit opt-in.",
+        "Private videos, missing captions, rate limits, or upstream YouTube changes can still block transcription.",
+    ]
+
+    if not module_version:
+        status = "error"
+        message = "The yt-dlp Python package is not available. Install requirements before transcribing."
+    elif not cli_path:
+        status = "warning"
+        message = "The yt-dlp Python package is available, but the yt-dlp command is not on PATH."
+    elif cli_error:
+        status = "warning"
+        message = "The yt-dlp command was found, but its version check returned an error."
+    else:
+        status = "ok"
+        message = "yt-dlp is available for local caption extraction."
+
+    return {
+        "status": status,
+        "available": bool(module_version),
+        "module_version": module_version,
+        "cli_available": bool(cli_path),
+        "cli_path": cli_path,
+        "cli_version": cli_version,
+        "cli_error": cli_error,
+        "message": message,
+        "hints": hints,
+    }
 
 
 def parse_bool(value, default: bool) -> bool:
@@ -1270,6 +1414,9 @@ def public_settings(settings: dict) -> dict:
             "kind": "openai_compatible",
             "base_url": profile.get("base_url", ""),
             "model": profile.get("model", ""),
+            "study_guide_max_sources": sanitize_study_guide_max_sources(profile.get("study_guide_max_sources")),
+            "study_guide_input_chars": sanitize_study_guide_input_chars(profile.get("study_guide_input_chars")),
+            "study_guide_output_tokens": sanitize_study_guide_output_tokens(profile.get("study_guide_output_tokens")),
             "api_key_set": bool(profile.get("api_key", "")),
         }
         for profile in settings.get("model_profiles", [])
@@ -1312,6 +1459,26 @@ def sanitize_profile_id(profile_id: str | None) -> str:
     return value[:80]
 
 
+def sanitize_int_setting(value, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(parsed, maximum))
+
+
+def sanitize_study_guide_max_sources(value) -> int:
+    return sanitize_int_setting(value, API_STUDY_GUIDE_MAX_SOURCES, 1, 24)
+
+
+def sanitize_study_guide_input_chars(value) -> int:
+    return sanitize_int_setting(value, API_STUDY_GUIDE_SOURCE_BUDGET_CHARS, 1000, API_STUDY_GUIDE_MAX_INPUT_CHARS)
+
+
+def sanitize_study_guide_output_tokens(value) -> int:
+    return sanitize_int_setting(value, API_STUDY_GUIDE_MAX_TOKENS, 128, API_STUDY_GUIDE_MAX_OUTPUT_TOKENS)
+
+
 def sanitize_model_profiles(incoming_profiles: list, current_profiles: list[dict]) -> list[dict]:
     current_by_id = {
         profile.get("id", ""): profile
@@ -1345,6 +1512,9 @@ def sanitize_model_profiles(incoming_profiles: list, current_profiles: list[dict
                 "kind": "openai_compatible",
                 "base_url": sanitize_base_url(raw_profile.get("base_url", "")),
                 "model": str(raw_profile.get("model", "")).strip(),
+                "study_guide_max_sources": sanitize_study_guide_max_sources(raw_profile.get("study_guide_max_sources")),
+                "study_guide_input_chars": sanitize_study_guide_input_chars(raw_profile.get("study_guide_input_chars")),
+                "study_guide_output_tokens": sanitize_study_guide_output_tokens(raw_profile.get("study_guide_output_tokens")),
                 "api_key": api_key if api_key else str(existing.get("api_key", "")).strip(),
             }
         )
@@ -1530,8 +1700,19 @@ def select_model_profile(settings: dict, profile_id: str | None = None) -> dict:
     )
 
 
+def api_study_guide_source_limit(profile: dict, requested_max_sources: int) -> int:
+    profile_max_sources = sanitize_study_guide_max_sources(profile.get("study_guide_max_sources"))
+    return min(requested_max_sources, profile_max_sources)
+
+
 def load_library_entries() -> list[dict]:
     library_path = get_output_dir() / "library.json"
+    data = read_library_index(library_path)
+    return [decorate_library_entry(entry) for entry in data]
+
+
+def read_library_index(library_path: Path | None = None) -> list[dict]:
+    library_path = library_path or (get_output_dir() / "library.json")
     if not library_path.exists():
         return []
 
@@ -1543,7 +1724,333 @@ def load_library_entries() -> list[dict]:
     if not isinstance(data, list):
         return []
 
-    return [decorate_library_entry(entry) for entry in data if isinstance(entry, dict)]
+    return [entry for entry in data if isinstance(entry, dict)]
+
+
+def rebuild_library_index() -> dict:
+    output_root = get_output_dir().resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    library_path = output_root / "library.json"
+    previous_entries = read_library_index(library_path)
+    previous_by_path = {
+        str(entry.get("path", "")): entry
+        for entry in previous_entries
+        if isinstance(entry.get("path"), str) and entry.get("path")
+    }
+
+    rebuilt_entries = []
+    skipped = []
+    for markdown_path in sorted(output_root.rglob("*.md")):
+        try:
+            rel_path = markdown_path.resolve().relative_to(output_root).as_posix()
+        except ValueError:
+            continue
+
+        try:
+            markdown = markdown_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            skipped.append({"path": rel_path, "reason": "not_utf8"})
+            continue
+
+        frontmatter = parse_markdown_frontmatter(markdown)
+        previous = previous_by_path.get(rel_path, {})
+        if not should_index_markdown(markdown_path, markdown, frontmatter, previous):
+            skipped.append({"path": rel_path, "reason": "not_transcript"})
+            continue
+
+        rebuilt_entries.append(
+            build_rebuilt_library_entry(output_root, markdown_path, markdown, frontmatter, previous)
+        )
+
+    rebuilt_entries = dedupe_library_entries(rebuilt_entries)
+    rebuilt_entries.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+    write_library_index(library_path, rebuilt_entries)
+
+    rebuilt_paths = {entry.get("path") for entry in rebuilt_entries}
+    previous_paths = {entry.get("path") for entry in previous_entries if entry.get("path")}
+    return {
+        "library_path": str(library_path),
+        "entries_count": len(rebuilt_entries),
+        "added_count": len(rebuilt_paths - previous_paths),
+        "removed_stale_count": len(previous_paths - rebuilt_paths),
+        "skipped_count": len(skipped),
+        "skipped": skipped[:25],
+        "entries": [decorate_library_entry(entry) for entry in rebuilt_entries],
+    }
+
+
+def should_index_markdown(markdown_path: Path, markdown: str, frontmatter: dict, previous_entry: dict) -> bool:
+    if previous_entry:
+        return True
+    if any(frontmatter.get(field) for field in ("url", "video_id", "topic", "language")):
+        return True
+    if markdown_path.stem.endswith("_transcript"):
+        return True
+    return bool(re.search(r"(?im)^##\s+Transcript\s*$", markdown))
+
+
+def build_rebuilt_library_entry(
+    output_root: Path,
+    markdown_path: Path,
+    markdown: str,
+    frontmatter: dict,
+    previous: dict,
+) -> dict:
+    rel_path = markdown_path.resolve().relative_to(output_root).as_posix()
+    json_metadata = load_json_sidecar_metadata(markdown_path)
+
+    def pick(field: str, default=""):
+        for source in (frontmatter, json_metadata, previous):
+            value = source.get(field) if isinstance(source, dict) else None
+            if value not in (None, ""):
+                return value
+        return default
+
+    inferred_topic = infer_topic_from_path(output_root, markdown_path)
+    topic = sanitize_topic_slug(str(pick("topic", inferred_topic))) or inferred_topic or "other"
+    tags = sanitize_tags(pick("tags", []))
+    if not tags:
+        tags = tags_for_topic(topic, load_custom_topics())
+
+    summary = str(pick("summary", "")).strip()
+    if is_placeholder_summary(summary):
+        summary = ""
+    if not summary:
+        summary = extract_markdown_section(markdown, "Summary")
+    if is_placeholder_summary(summary):
+        summary = ""
+
+    title = str(pick("title", "")).strip() or extract_markdown_title(markdown) or markdown_path.stem
+    created_at = str(pick("created_at", "")).strip() or file_mtime_utc(markdown_path)
+    language = str(pick("language", "")).strip()
+
+    entry = {
+        "schema_version": normalize_schema_version(pick("schema_version", LIBRARY_SCHEMA_VERSION)),
+        "title": title,
+        "channel": str(pick("channel", "")).strip(),
+        "url": str(pick("url", "")).strip(),
+        "video_id": str(pick("video_id", "")).strip(),
+        "upload_date": str(pick("upload_date", "")).strip(),
+        "duration_seconds": parse_number_or_default(pick("duration_seconds", 0), 0),
+        "language": language,
+        "source": str(pick("source", "")).strip(),
+        "track_key": str(pick("track_key", "")).strip(),
+        "track_name": str(pick("track_name", "")).strip(),
+        "topic": topic,
+        "topic_source": str(pick("topic_source", "rebuild")).strip() or "rebuild",
+        "tags": tags,
+        "segments_count": int(parse_number_or_default(pick("segments_count", 0), 0)),
+        "include_timestamps": parse_bool(pick("include_timestamps", True), True),
+        "include_metadata": parse_bool(pick("include_metadata", True), True),
+        "paragraph_mode": parse_bool(pick("paragraph_mode", False), False),
+        "time_range_start_seconds": normalize_optional_number(pick("time_range_start_seconds", None)),
+        "time_range_end_seconds": normalize_optional_number(pick("time_range_end_seconds", None)),
+        "study_notes_generated": parse_bool(pick("study_notes_generated", False), False),
+        "study_notes_provider": str(pick("study_notes_provider", "")).strip(),
+        "summary": summary,
+        "key_points": normalize_string_list(pick("key_points", [])),
+        "highlights": normalize_highlights(pick("highlights", [])),
+        "review_questions": normalize_string_list(pick("review_questions", [])),
+        "created_at": created_at,
+        "path": rel_path,
+    }
+
+    for field in ("topic_confidence", "topic_rationale", "topic_provider", "topic_classified_at"):
+        value = pick(field, "")
+        if value not in (None, ""):
+            entry[field] = value
+
+    for key, suffix in (("txt_path", ".txt"), ("json_path", ".json"), ("srt_path", ".srt"), ("vtt_path", ".vtt")):
+        sidecar_rel_path = find_sidecar_rel_path(output_root, markdown_path, suffix, previous.get(key, ""))
+        if sidecar_rel_path:
+            entry[key] = sidecar_rel_path
+
+    return entry
+
+
+def parse_markdown_frontmatter(markdown: str) -> dict:
+    match = re.match(r"\A---\s*\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", markdown, flags=re.DOTALL)
+    if not match:
+        return {}
+
+    lines = match.group(1).splitlines()
+    metadata = {}
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if not line.strip() or line.lstrip().startswith("#") or ":" not in line:
+            index += 1
+            continue
+
+        key, raw_value = line.split(":", 1)
+        key = key.strip()
+        raw_value = raw_value.strip()
+        if not key:
+            index += 1
+            continue
+
+        if raw_value:
+            metadata[key] = parse_frontmatter_scalar(raw_value)
+            index += 1
+            continue
+
+        values = []
+        index += 1
+        while index < len(lines):
+            child_line = lines[index]
+            child_match = re.match(r"^\s*-\s*(.*)$", child_line)
+            if not child_match:
+                break
+            values.append(parse_frontmatter_scalar(child_match.group(1).strip()))
+            index += 1
+        metadata[key] = values
+
+    return metadata
+
+
+def parse_frontmatter_scalar(value: str):
+    lowered = value.lower()
+    if lowered == "null":
+        return None
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        if re.match(r"^-?\d+$", value):
+            return int(value)
+        if re.match(r"^-?\d+\.\d+$", value):
+            return float(value)
+    except ValueError:
+        pass
+
+    return value.strip().strip('"').strip("'")
+
+
+def load_json_sidecar_metadata(markdown_path: Path) -> dict:
+    sidecar_path = markdown_path.with_suffix(".json")
+    if not sidecar_path.exists() or not sidecar_path.is_file():
+        return {}
+
+    try:
+        payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+
+    if not isinstance(payload, dict):
+        return {}
+
+    metadata = payload.get("metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def infer_topic_from_path(output_root: Path, markdown_path: Path) -> str:
+    parent_rel = markdown_path.parent.resolve().relative_to(output_root).as_posix()
+    if parent_rel in (".", ""):
+        return "other"
+    return sanitize_topic_slug(parent_rel) or "other"
+
+
+def extract_markdown_title(markdown: str) -> str:
+    match = re.search(r"(?m)^#\s+(.+?)\s*$", markdown)
+    return match.group(1).strip() if match else ""
+
+
+def extract_markdown_section(markdown: str, heading: str) -> str:
+    pattern = rf"(?ims)^##\s+{re.escape(heading)}\s*\n(.*?)(?=^##\s+|\Z)"
+    match = re.search(pattern, markdown)
+    if not match:
+        return ""
+    return re.sub(r"\s+", " ", match.group(1)).strip()[:600]
+
+
+def file_mtime_utc(path: Path) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(path.stat().st_mtime))
+
+
+def normalize_schema_version(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return LIBRARY_SCHEMA_VERSION
+
+
+def parse_number_or_default(value, default):
+    if value in (None, ""):
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if parsed.is_integer():
+        return int(parsed)
+    return parsed
+
+
+def normalize_optional_number(value):
+    if value in (None, "", "null"):
+        return None
+    return parse_number_or_default(value, None)
+
+
+def normalize_string_list(value) -> list[str]:
+    if not isinstance(value, list):
+        value = [value] if value not in (None, "") else []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def normalize_highlights(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    highlights = []
+    for item in value:
+        if isinstance(item, dict):
+            text = str(item.get("text", "")).strip()
+            start = str(item.get("start", "")).strip()
+            if text:
+                highlights.append({"start": start, "text": text})
+        else:
+            text = str(item).strip()
+            if text:
+                highlights.append({"start": "", "text": text})
+    return highlights
+
+
+def find_sidecar_rel_path(output_root: Path, markdown_path: Path, suffix: str, previous_value: str) -> str:
+    sidecar_path = markdown_path.with_suffix(suffix)
+    if sidecar_path.exists() and sidecar_path.is_file():
+        return sidecar_path.resolve().relative_to(output_root).as_posix()
+    if previous_value:
+        candidate = (output_root / str(previous_value).replace("\\", "/").lstrip("/")).resolve()
+        try:
+            candidate.relative_to(output_root)
+        except ValueError:
+            return ""
+        if candidate.exists() and candidate.is_file():
+            return candidate.relative_to(output_root).as_posix()
+    return ""
+
+
+def dedupe_library_entries(entries: list[dict]) -> list[dict]:
+    deduped = {}
+    for entry in entries:
+        key = str(entry.get("path", ""))
+        if not key:
+            continue
+        deduped[key] = entry
+    return list(deduped.values())
+
+
+def write_library_index(library_path: Path, entries: list[dict]):
+    temp_path = library_path.with_suffix(".json.tmp")
+    temp_path.write_text(json.dumps(entries, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temp_path.replace(library_path)
 
 
 def build_library_study_guide(
@@ -1569,7 +2076,15 @@ def build_library_study_guide(
             "No library entries match this topic yet. Generate or refresh transcripts first.",
         )
 
-    selected_entries = entries[:max_sources]
+    settings = load_settings()
+    selected_provider = sanitize_provider(provider or settings.get("study_guide_provider", "local"))
+    profile = None
+    source_limit = max_sources
+    if selected_provider == "api":
+        profile = select_model_profile(settings, profile_id)
+        source_limit = api_study_guide_source_limit(profile, max_sources)
+
+    selected_entries = entries[:source_limit]
     source_docs = []
     for entry in selected_entries:
         try:
@@ -1597,10 +2112,9 @@ def build_library_study_guide(
             "Matching library entries were found, but their Markdown files could not be opened.",
         )
 
-    settings = load_settings()
-    selected_provider = sanitize_provider(provider or settings.get("study_guide_provider", "local"))
     if selected_provider == "api":
-        profile = select_model_profile(settings, profile_id)
+        if profile is None:
+            profile = select_model_profile(settings, profile_id)
         guide_text = render_api_library_study_guide(source_docs, topic, profile, selected_topics)
         provider_label = profile.get("name") or profile.get("model") or "configured-api-model"
         provider_profile_id = profile.get("id", "")
@@ -1718,9 +2232,13 @@ def render_api_library_study_guide(
         )
 
     endpoint = chat_completions_endpoint(base_url)
-    source_payload = build_api_source_payload(source_docs)
+    source_payload = build_api_source_payload(
+        source_docs,
+        total_excerpt_budget=sanitize_study_guide_input_chars(profile.get("study_guide_input_chars")),
+    )
     system_message = (
         "You generate concise Markdown study guides from transcript excerpts. "
+        "Return only the final Markdown answer. Do not include reasoning, analysis, or scratchpad text. "
         "Use only the provided sources and do not invent demos, links, claims, or action items. "
         "If the sources cover different topics, keep them separated instead of forcing one unified story. "
         "Include sections: Sources, Short Summary, Source Notes, Cross-Source Themes, "
@@ -1747,6 +2265,7 @@ def render_api_library_study_guide(
             {"role": "user", "content": user_message},
         ],
         "temperature": 0.2,
+        "max_tokens": sanitize_study_guide_output_tokens(profile.get("study_guide_output_tokens")),
     }
     request = urllib.request.Request(
         endpoint,
@@ -1763,9 +2282,10 @@ def render_api_library_study_guide(
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         message = exc.read().decode("utf-8", errors="replace")[:500]
+        code, user_message = classify_api_provider_http_error(message)
         raise TranscriptionError(
-            "api_provider_error",
-            "The configured API model returned an error. Check Settings and try again.",
+            code,
+            user_message,
             message,
         ) from exc
     except Exception as exc:
@@ -1792,27 +2312,195 @@ def chat_completions_endpoint(base_url: str) -> str:
     return clean_url + "/chat/completions"
 
 
-def build_api_source_payload(source_docs: list[dict]) -> str:
+def test_model_profile(profile_id: str) -> dict:
+    clean_profile_id = sanitize_profile_id(profile_id)
+    if not clean_profile_id:
+        raise TranscriptionError(
+            "missing_profile",
+            "Choose a saved model profile before testing the connection.",
+        )
+
+    settings = load_settings()
+    profile = select_model_profile(settings, clean_profile_id)
+    base_url = sanitize_base_url(profile.get("base_url", ""))
+    model = str(profile.get("model", "")).strip()
+    api_key = str(profile.get("api_key", "")).strip()
+    if not base_url or not model or not api_key:
+        raise TranscriptionError(
+            "api_provider_not_configured",
+            "Save API base URL, model, and API key in this Settings profile before testing it.",
+        )
+
+    payload = call_chat_completion(
+        profile,
+        [
+            {
+                "role": "system",
+                "content": "You are a connection test. Return strict JSON only.",
+            },
+            {
+                "role": "user",
+                "content": 'Return exactly: {"ok": true, "capability": "chat_completions"}',
+            },
+        ],
+        temperature=0,
+        timeout_seconds=30,
+    )
+    content = extract_chat_completion_text(payload).strip()
+    if not content:
+        raise TranscriptionError(
+            "api_provider_empty_response",
+            "The model profile responded, but returned an empty message.",
+        )
+
+    json_ok = False
+    try:
+        parsed = parse_json_object_from_text(content)
+        json_ok = parsed.get("ok") is True
+    except TranscriptionError:
+        json_ok = False
+
+    return {
+        "profile_id": profile.get("id", ""),
+        "profile_name": profile.get("name", "Model profile"),
+        "base_url": base_url,
+        "model": model,
+        "chat_completions": True,
+        "json_response": json_ok,
+        "structured_output": "not_checked",
+        "message": "Connection test passed. Chat completions responded without sending transcript data.",
+    }
+
+
+def call_chat_completion(
+    profile: dict,
+    messages: list[dict],
+    temperature: float = 0.2,
+    timeout_seconds: int = 90,
+) -> dict:
+    base_url = sanitize_base_url(profile.get("base_url", ""))
+    model = str(profile.get("model", "")).strip()
+    api_key = str(profile.get("api_key", "")).strip()
+    if not base_url or not model or not api_key:
+        raise TranscriptionError(
+            "api_provider_not_configured",
+            "Configure API base URL, model, and API key in the selected Settings profile.",
+        )
+
+    request_body = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    request = urllib.request.Request(
+        chat_completions_endpoint(base_url),
+        data=json.dumps(request_body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        message = exc.read().decode("utf-8", errors="replace")[:500]
+        raise TranscriptionError(
+            "api_provider_error",
+            "The configured API model returned an error. Check Settings and try again.",
+            message,
+        ) from exc
+    except Exception as exc:
+        raise TranscriptionError(
+            "api_provider_error",
+            "Could not reach the configured API model. Check Settings and network access.",
+            str(exc),
+        ) from exc
+
+
+def build_api_source_payload(source_docs: list[dict], total_excerpt_budget: int = API_STUDY_GUIDE_SOURCE_BUDGET_CHARS) -> str:
     blocks = []
+    source_count = max(1, len(source_docs))
+    total_budget = sanitize_study_guide_input_chars(total_excerpt_budget)
+    per_source_chars = max(API_STUDY_GUIDE_MIN_EXCERPT_CHARS, total_budget // source_count)
     for index, doc in enumerate(source_docs, start=1):
         entry = doc["entry"]
         title = entry.get("title") or "Untitled"
         channel = entry.get("channel") or "Unknown channel"
         source_topic = entry.get("topic") or "no topic"
-        excerpt = doc["text"][:5000]
+        summary = str(entry.get("summary", "")).strip()
+        tags = format_prompt_tags(entry.get("tags", []))
+        excerpt = prompt_excerpt(doc["text"], per_source_chars)
+        lines = [
+            f"Source {index}: {title}",
+            f"Channel: {channel}",
+            f"Topic: {source_topic}",
+            f"URL: {entry.get('url', '')}",
+        ]
+        if tags:
+            lines.append(f"Tags: {tags}")
+        if summary and not is_placeholder_summary(summary):
+            lines.extend(["Existing summary:", prompt_excerpt(summary, 500)])
+        lines.extend(
+            [
+                "Transcript excerpt:",
+                excerpt,
+            ]
+        )
         blocks.append(
-            "\n".join(
-                [
-                    f"Source {index}: {title}",
-                    f"Channel: {channel}",
-                    f"Topic: {source_topic}",
-                    f"URL: {entry.get('url', '')}",
-                    "Transcript excerpt:",
-                    excerpt,
-                ]
-            )
+            "\n".join(lines)
         )
     return "\n\n---\n\n".join(blocks)
+
+
+def format_prompt_tags(tags) -> str:
+    if not isinstance(tags, list):
+        return ""
+    clean_tags = [str(tag).strip() for tag in tags if str(tag).strip()]
+    return ", ".join(clean_tags[:12])
+
+
+def prompt_excerpt(text: str, max_chars: int) -> str:
+    clean_text = re.sub(r"\s+", " ", str(text or "")).strip()
+    if max_chars <= 0 or len(clean_text) <= max_chars:
+        return clean_text
+
+    cutoff = max_chars
+    sentence_cutoff = max(
+        clean_text.rfind(". ", 0, max_chars),
+        clean_text.rfind("? ", 0, max_chars),
+        clean_text.rfind("! ", 0, max_chars),
+    )
+    if sentence_cutoff >= int(max_chars * 0.55):
+        cutoff = sentence_cutoff + 1
+
+    return clean_text[:cutoff].rstrip() + "..."
+
+
+def classify_api_provider_http_error(message: str) -> tuple[str, str]:
+    clean_message = str(message or "")
+    lower_message = clean_message.lower()
+    context_markers = (
+        "context length",
+        "context size",
+        "n_ctx",
+        "n_keep",
+        "too many tokens",
+        "maximum context",
+        "token limit",
+    )
+    if any(marker in lower_message for marker in context_markers):
+        return (
+            "api_provider_context_limit",
+            "The selected API model context window is too small for the selected sources. Try fewer topics, fewer sources, or load the model with a larger context window.",
+        )
+
+    return (
+        "api_provider_error",
+        "The configured API model returned an error. Check Settings and try again.",
+    )
 
 
 def extract_chat_completion_text(payload: dict) -> str:
@@ -2191,6 +2879,12 @@ def render_api_topic_classification(source_doc: dict, profile: dict, topic_optio
 
 
 def parse_topic_classification_content(content: str) -> dict:
+    parsed = parse_json_object_from_text(content)
+    validate_topic_classification_schema(parsed)
+    return parsed
+
+
+def parse_json_object_from_text(content: str) -> dict:
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError:
@@ -2215,6 +2909,55 @@ def parse_topic_classification_content(content: str) -> dict:
         )
 
     return parsed
+
+
+def validate_topic_classification_schema(parsed: dict):
+    required_fields = ("topic", "label", "tags", "confidence", "summary", "rationale", "keywords")
+    missing_fields = [field for field in required_fields if field not in parsed]
+    if missing_fields:
+        raise TranscriptionError(
+            "api_provider_invalid_response",
+            "The configured API model returned topic JSON with missing fields: " + ", ".join(missing_fields) + ".",
+        )
+
+    if not isinstance(parsed.get("topic"), str) or not parsed["topic"].strip():
+        raise TranscriptionError(
+            "api_provider_invalid_response",
+            "The configured API model returned topic JSON with an invalid topic.",
+        )
+
+    if not isinstance(parsed.get("label"), str):
+        raise TranscriptionError(
+            "api_provider_invalid_response",
+            "The configured API model returned topic JSON with an invalid label.",
+        )
+
+    if not isinstance(parsed.get("tags"), list) or not all(isinstance(item, str) for item in parsed["tags"]):
+        raise TranscriptionError(
+            "api_provider_invalid_response",
+            "The configured API model returned topic JSON with invalid tags.",
+        )
+
+    if not isinstance(parsed.get("keywords"), list) or not all(isinstance(item, str) for item in parsed["keywords"]):
+        raise TranscriptionError(
+            "api_provider_invalid_response",
+            "The configured API model returned topic JSON with invalid keywords.",
+        )
+
+    try:
+        float(parsed.get("confidence"))
+    except (TypeError, ValueError) as exc:
+        raise TranscriptionError(
+            "api_provider_invalid_response",
+            "The configured API model returned topic JSON with invalid confidence.",
+        ) from exc
+
+    for field in ("summary", "rationale"):
+        if not isinstance(parsed.get(field), str):
+            raise TranscriptionError(
+                "api_provider_invalid_response",
+                f"The configured API model returned topic JSON with invalid {field}.",
+            )
 
 
 def normalize_topic_classification(classification: dict, custom_topics: list[dict]) -> dict:

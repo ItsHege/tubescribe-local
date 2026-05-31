@@ -183,6 +183,49 @@ class AppHttpTests(unittest.TestCase):
                     self.assertEqual(status, 400)
                     self.assertEqual(payload["error_code"], "invalid_path")
 
+    def test_diagnostics_endpoint_reports_yt_dlp_status(self):
+        diagnostics = {
+            "yt_dlp": {
+                "status": "ok",
+                "available": True,
+                "module_version": "2026.01.01",
+                "cli_available": True,
+                "cli_path": "/usr/bin/yt-dlp",
+                "cli_version": "2026.01.01",
+                "cli_error": "",
+                "message": "yt-dlp is available for local caption extraction.",
+                "hints": ["Keep yt-dlp updated."],
+            }
+        }
+        with patch.object(app, "get_diagnostics", return_value=diagnostics):
+            with run_test_server() as base_url:
+                status, payload = request_json(base_url, "/api/diagnostics")
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["diagnostics"]["yt_dlp"]["status"], "ok")
+        self.assertEqual(payload["diagnostics"]["yt_dlp"]["module_version"], "2026.01.01")
+
+    def test_model_profile_test_endpoint_reports_capabilities(self):
+        result = {
+            "profile_id": "local-test",
+            "profile_name": "Local Test",
+            "base_url": "http://localhost:11434/v1",
+            "model": "test-model",
+            "chat_completions": True,
+            "json_response": True,
+            "structured_output": "not_checked",
+            "message": "Connection test passed.",
+        }
+        with patch.object(app, "test_model_profile", return_value=result):
+            with run_test_server() as base_url:
+                status, payload = request_json(base_url, "/api/settings/test-model", {"profile_id": "local-test"})
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["result"]["chat_completions"])
+        self.assertTrue(payload["result"]["json_response"])
+
     def test_library_file_and_local_study_guide_endpoint(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "outputs"
@@ -256,6 +299,54 @@ Agents can call tools, inspect results and iterate on tasks.
                     self.assertEqual(result["provider"], "local")
                     self.assertEqual(result["sources_count"], 1)
                     self.assertIn("Agent Note", result["guide_text"])
+
+    def test_library_rebuild_endpoint_repairs_index(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "outputs"
+            source_dir = output_dir / "programming" / "javascript"
+            source_dir.mkdir(parents=True)
+            markdown_path = source_dir / "javascript-note_TEST_en_transcript.md"
+            markdown_path.write_text(
+                """---
+title: "JavaScript Note"
+url: "https://example.test/watch?v=TEST"
+video_id: "TEST"
+language: "en"
+topic: "programming/javascript"
+tags:
+  - javascript
+---
+
+# JavaScript Note
+
+## Transcript
+
+[00:00:01] JavaScript can run in the browser and in Node.js.
+""",
+                encoding="utf-8",
+            )
+            (output_dir / "library.json").write_text(
+                json.dumps([{"title": "Missing", "path": "missing.md"}]),
+                encoding="utf-8",
+            )
+            settings_path = Path(temp_dir) / "local_settings.json"
+            settings_path.write_text(json.dumps({"output_dir": str(output_dir)}), encoding="utf-8")
+            batch_state_path = Path(temp_dir) / "batch_jobs.json"
+
+            with patch.object(app, "OUTPUT_DIR", output_dir), patch.object(app, "LOCAL_SETTINGS_PATH", settings_path), patch.object(app, "BATCH_STATE_PATH", batch_state_path):
+                with run_test_server() as base_url:
+                    status, payload = request_json(base_url, "/api/library/rebuild", {})
+
+                    self.assertEqual(status, 200)
+                    self.assertTrue(payload["ok"])
+                    result = payload["result"]
+                    self.assertEqual(result["entries_count"], 1)
+                    self.assertEqual(result["removed_stale_count"], 1)
+                    self.assertEqual(result["entries"][0]["topic"], "programming/javascript")
+
+                    status, payload = request_json(base_url, "/api/library")
+                    self.assertEqual(status, 200)
+                    self.assertEqual(payload["entries"][0]["path"], "programming/javascript/javascript-note_TEST_en_transcript.md")
 
     def test_backend_batch_job_runs_with_mocked_transcribe(self):
         with tempfile.TemporaryDirectory() as temp_dir:

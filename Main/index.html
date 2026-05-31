@@ -110,7 +110,7 @@
             box-shadow: var(--shadow);
             border-radius: var(--radius);
         }
-        input, textarea, select, .multi-select-trigger, .meta-card, .settings-profile, .batch-item, .library-entry, .tracks-status, .batch-status, .status, .library-status, .settings-empty, .transcribe-options {
+        input, textarea, select, .multi-select-trigger, .meta-card, .settings-profile, .diagnostics-panel, .diagnostics-details div, .batch-item, .library-entry, .tracks-status, .batch-status, .status, .library-status, .settings-empty, .transcribe-options {
             border-radius: var(--radius) !important;
             border-color: var(--line);
         }
@@ -120,6 +120,8 @@
         .meta-card, .multi-select-trigger { background: var(--panel); }
         :root[data-theme="dark"] .meta-card { background: #1f1d1c; }
         :root[data-theme="dark"] .transcribe-options { background: #1f1d1c; }
+        :root[data-theme="dark"] .diagnostics-panel,
+        :root[data-theme="dark"] .diagnostics-details div { background: #1f1d1c; }
         :root[data-theme="dark"] .settings-empty { background: #1f1d1c; }
         :root[data-theme="dark"] .batch-item { background: #1f1d1c; }
         :root[data-theme="dark"] .library-entry { background: #1f1d1c; }
@@ -345,6 +347,7 @@
         .stage-step.is-error .stage-icon::after { content: '!'; }
         .stage-step.is-pending { color: var(--muted); }
         .stage-step .stage-detail { color: var(--muted); font-size: 12px; }
+        .study-guide-progress { margin-bottom: 18px; }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.55; }
@@ -893,6 +896,7 @@
                 </div>
                 <div class="result-actions">
                     <button id="library-refresh-button" class="secondary-button" type="button">Refresh</button>
+                    <button id="library-rebuild-button" class="secondary-button" type="button">Repair Index</button>
                 </div>
             </div>
 
@@ -966,6 +970,31 @@
 
             <div id="library-status" class="library-status">
                 Library has not loaded yet.
+            </div>
+
+            <div id="study-guide-progress" class="stage-progress study-guide-progress" aria-live="polite" aria-label="Study guide progress">
+                <ol id="study-guide-stage-list" class="stage-list">
+                    <li class="stage-step is-pending" data-stage="sources">
+                        <span class="stage-icon">1</span>
+                        <span>Prepare sources</span>
+                        <span class="stage-detail"></span>
+                    </li>
+                    <li class="stage-step is-pending" data-stage="request">
+                        <span class="stage-icon">2</span>
+                        <span>Send to engine</span>
+                        <span class="stage-detail"></span>
+                    </li>
+                    <li class="stage-step is-pending" data-stage="model">
+                        <span class="stage-icon">3</span>
+                        <span>Wait for model</span>
+                        <span class="stage-detail"></span>
+                    </li>
+                    <li class="stage-step is-pending" data-stage="render">
+                        <span class="stage-icon">4</span>
+                        <span>Render guide</span>
+                        <span class="stage-detail"></span>
+                    </li>
+                </ol>
             </div>
 
             <div id="library-list" class="library-list" aria-live="polite"></div>
@@ -1055,6 +1084,20 @@
             <div id="settings-description" class="settings-note">
                 Local heuristic keeps transcript text on this machine. API profiles send selected transcript excerpts only when you choose that engine.
             </div>
+
+            <section class="diagnostics-panel" aria-labelledby="diagnostics-title">
+                <div>
+                    <p class="eyebrow">Local Diagnostics</p>
+                    <h3 id="diagnostics-title">Caption Engine</h3>
+                    <p id="diagnostics-summary">Checking local yt-dlp status...</p>
+                </div>
+                <button id="diagnostics-refresh-button" class="secondary-button" type="button">Refresh</button>
+                <dl id="diagnostics-details" class="diagnostics-details">
+                    <div><dt>yt-dlp package</dt><dd id="diagnostics-module-version">-</dd></div>
+                    <div><dt>yt-dlp command</dt><dd id="diagnostics-cli-version">-</dd></div>
+                    <div><dt>Output folder</dt><dd id="diagnostics-output-folder">-</dd></div>
+                </dl>
+            </section>
 
             <form id="settings-form" class="settings-form">
                 <div class="field">
@@ -1627,31 +1670,34 @@
         if (!recentRow) return;
         fetch(API_BASE + '/api/library').then(function (r) { return r.json(); }).then(function (data) {
             var entries = (data && data.entries) || [];
-            entries.sort(function (a, b) {
-                return new Date(b.created_at || 0) - new Date(a.created_at || 0);
-            });
-            var top = entries.slice(0, 3);
-            recentRow.innerHTML = '';
-            top.forEach(function (entry) {
-                var card = document.createElement('div');
-                card.className = 'recent-card';
-                card.setAttribute('role', 'button');
-                card.tabIndex = 0;
-                var title = document.createElement('div');
-                title.className = 'recent-title';
-                title.textContent = entry.title || 'Untitled';
-                card.appendChild(title);
-                var meta = document.createElement('div');
-                meta.className = 'recent-meta';
-                meta.textContent = [entry.channel || '', entry.topic || '', formatRelDate(entry.created_at)].filter(Boolean).join(' · ');
-                card.appendChild(meta);
-                card.addEventListener('click', function () { openLibraryEntry(entry); });
-                card.addEventListener('keydown', function (e) {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLibraryEntry(entry); }
-                });
-                recentRow.appendChild(card);
-            });
+            renderRecent(entries);
         }).catch(function () {});
+    }
+    function renderRecent(entries) {
+        entries.sort(function (a, b) {
+            return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+        });
+        var top = entries.slice(0, 3);
+        recentRow.innerHTML = '';
+        top.forEach(function (entry) {
+            var card = document.createElement('div');
+            card.className = 'recent-card';
+            card.setAttribute('role', 'button');
+            card.tabIndex = 0;
+            var title = document.createElement('div');
+            title.className = 'recent-title';
+            title.textContent = entry.title || 'Untitled';
+            card.appendChild(title);
+            var meta = document.createElement('div');
+            meta.className = 'recent-meta';
+            meta.textContent = [entry.channel || '', entry.topic || '', formatRelDate(entry.created_at)].filter(Boolean).join(' · ');
+            card.appendChild(meta);
+            card.addEventListener('click', function () { openLibraryEntry(entry); });
+            card.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLibraryEntry(entry); }
+            });
+            recentRow.appendChild(card);
+        });
     }
     function openLibraryEntry(entry) {
         if (!entry || !entry.path) {
