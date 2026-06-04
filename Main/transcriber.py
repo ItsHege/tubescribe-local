@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urlparse
 
 from yt_dlp import YoutubeDL
 
@@ -22,6 +23,10 @@ DEFAULT_LANG_PRIORITY = [
 ]
 
 LIBRARY_SCHEMA_VERSION = 2
+MAX_CAPTION_JSON_BYTES = 20 * 1024 * 1024
+MAX_CAPTION_SEGMENTS = 100000
+MAX_TRANSCRIPT_CHARS = 5 * 1024 * 1024
+MAX_SIDECAR_CHARS = 25 * 1024 * 1024
 
 TOPIC_RULES = [
     {
@@ -263,6 +268,8 @@ def transcribe_url(
     json_path = topic_output_dir / f"{base_name}.json"
     srt_path = topic_output_dir / f"{base_name}.srt"
     vtt_path = topic_output_dir / f"{base_name}.vtt"
+    for output_path in (markdown_path, txt_path, json_path, srt_path, vtt_path):
+        validate_output_path(output_root, output_path)
     created_at = utc_now_iso()
 
     metadata = {
@@ -316,6 +323,11 @@ def transcribe_url(
     json_output = build_json_output(metadata, segments)
     srt_output = build_srt_output(segments)
     vtt_output = build_vtt_output(segments)
+    validate_sidecar_size("Markdown", markdown_text)
+    validate_sidecar_size("TXT", text_output)
+    validate_sidecar_size("JSON", json_output)
+    validate_sidecar_size("SRT", srt_output)
+    validate_sidecar_size("VTT", vtt_output)
     markdown_path.write_text(markdown_text, encoding="utf-8")
     txt_path.write_text(text_output, encoding="utf-8")
     json_path.write_text(json_output, encoding="utf-8")
@@ -518,10 +530,33 @@ def prefer_manual_track(tracks: list[SubtitleTrack]) -> SubtitleTrack:
 
 
 def fetch_json(url: str) -> dict:
+    clean_url = (url or "").strip()
+    parsed = urlparse(clean_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise TranscriptionError(
+            "invalid_caption_url",
+            "This caption URL uses an unsupported scheme. Try another video or caption track.",
+            f"Unsupported caption URL scheme: {parsed.scheme or '<empty>'}",
+        )
+
     def _load() -> dict:
-        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        request = urllib.request.Request(clean_url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(request, timeout=60) as response:
-            return json.load(response)
+            raw_body = response.read(MAX_CAPTION_JSON_BYTES + 1)
+            if len(raw_body) > MAX_CAPTION_JSON_BYTES:
+                raise TranscriptionError(
+                    "subtitle_too_large",
+                    "This caption file is too large to process safely.",
+                    f"Caption JSON exceeded {MAX_CAPTION_JSON_BYTES} bytes.",
+                )
+            try:
+                return json.loads(raw_body.decode("utf-8"))
+            except json.JSONDecodeError as exc:
+                raise TranscriptionError(
+                    "invalid_subtitle_format",
+                    "This caption file could not be parsed.",
+                    str(exc),
+                ) from exc
 
     return retry_call(_load, action_name="subtitle track")
 
@@ -605,6 +640,7 @@ def clean_text(value: str) -> str:
 def extract_segments(caption_json: dict) -> list[tuple[float, str]]:
     segments: list[tuple[float, str]] = []
     previous_text = ""
+    total_chars = 0
 
     for event in caption_json.get("events", []):
         segs = event.get("segs")
@@ -620,6 +656,13 @@ def extract_segments(caption_json: dict) -> list[tuple[float, str]]:
 
         start_seconds = round(event.get("tStartMs", 0) / 1000, 1)
         segments.append((start_seconds, text))
+        total_chars += len(text)
+        if len(segments) > MAX_CAPTION_SEGMENTS or total_chars > MAX_TRANSCRIPT_CHARS:
+            raise TranscriptionError(
+                "subtitle_too_large",
+                "This caption file is too large to process safely.",
+                "Caption segments exceeded configured safety limits.",
+            )
         previous_text = text
 
     return segments
@@ -1442,9 +1485,35 @@ def slugify_filename_part(value: str, fallback: str) -> str:
 
 def safe_filename_stem(video_title: str, video_id: str, lang: str) -> str:
     safe_title = slugify_filename_part(video_title, video_id.lower())
+    safe_video_id = safe_identifier_part(video_id, "video")
     safe_lang = re.sub(r"[^A-Za-z0-9_-]+", "_", lang)
-    return f"{safe_title}_{video_id}_{safe_lang}_transcript"
+    return f"{safe_title}_{safe_video_id}_{safe_lang}_transcript"
 
 
 def safe_filename(video_title: str, video_id: str, lang: str) -> str:
     return f"{safe_filename_stem(video_title, video_id, lang)}.txt"
+
+
+def safe_identifier_part(value: str, fallback: str) -> str:
+    safe_value = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value or "")).strip("_-")
+    return (safe_value or fallback)[:80]
+
+
+def validate_output_path(output_root: Path, path: Path):
+    try:
+        to_output_relative_path(output_root, path)
+    except ValueError as exc:
+        raise TranscriptionError(
+            "invalid_output_path",
+            "The generated output path is invalid.",
+            str(exc),
+        ) from exc
+
+
+def validate_sidecar_size(label: str, text: str):
+    if len(text) > MAX_SIDECAR_CHARS:
+        raise TranscriptionError(
+            "transcript_too_large",
+            "This transcript is too large to write safely.",
+            f"{label} output exceeded {MAX_SIDECAR_CHARS} characters.",
+        )

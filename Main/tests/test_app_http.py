@@ -67,6 +67,15 @@ def request_text(base_url: str, path: str):
         return exc.code, exc.read().decode("utf-8", errors="replace")
 
 
+def request_raw(base_url: str, path: str, body: bytes, headers=None):
+    request = urllib.request.Request(base_url + path, data=body, headers=headers or {}, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode("utf-8", errors="replace")
+
+
 class AppHttpTests(unittest.TestCase):
     def test_primary_ui_and_v2_alias(self):
         with run_test_server() as base_url:
@@ -93,6 +102,29 @@ class AppHttpTests(unittest.TestCase):
 
             status, _ = request_text(base_url, "/v1")
             self.assertEqual(status, 404)
+
+    def test_unknown_static_fallback_does_not_expose_runtime_json(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            (base_dir / "index.html").write_text("TubeScribe Local", encoding="utf-8")
+            (base_dir / "local_settings.json").write_text(
+                json.dumps({"model_profiles": [{"api_key": "sentinel-secret"}]}),
+                encoding="utf-8",
+            )
+            (base_dir / "batch_jobs.json").write_text(
+                json.dumps({"job": "sentinel-batch"}),
+                encoding="utf-8",
+            )
+
+            with patch.object(app, "BASE_DIR", base_dir):
+                with run_test_server() as base_url:
+                    status, text = request_text(base_url, "/local_settings.json")
+                    self.assertEqual(status, 404)
+                    self.assertNotIn("sentinel-secret", text)
+
+                    status, text = request_text(base_url, "/batch_jobs.json")
+                    self.assertEqual(status, 404)
+                    self.assertNotIn("sentinel-batch", text)
 
     def test_cors_allows_only_matching_local_origin(self):
         with run_test_server() as base_url:
@@ -123,6 +155,46 @@ class AppHttpTests(unittest.TestCase):
             )
             self.assertEqual(status, 403)
             self.assertIsNone(headers.get("Access-Control-Allow-Origin"))
+
+    def test_cross_origin_simple_post_is_rejected_before_settings_mutation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "outputs"
+            output_dir.mkdir()
+            settings_path = Path(temp_dir) / "local_settings.json"
+            settings_path.write_text(
+                json.dumps({"output_dir": str(output_dir), "batch_limit": 10}),
+                encoding="utf-8",
+            )
+            body = json.dumps({"batch_limit": 7}).encode("utf-8")
+
+            with patch.object(app, "LOCAL_SETTINGS_PATH", settings_path):
+                with run_test_server() as base_url:
+                    status, _ = request_raw(
+                        base_url,
+                        "/api/settings",
+                        body,
+                        headers={
+                            "Origin": "https://example.com",
+                            "Content-Type": "text/plain",
+                        },
+                    )
+
+            self.assertEqual(status, 403)
+            saved = json.loads(settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved["batch_limit"], 10)
+
+    def test_json_body_size_limit_returns_413(self):
+        with patch.object(app, "MAX_JSON_BODY_BYTES", 16):
+            with run_test_server() as base_url:
+                status, text = request_raw(
+                    base_url,
+                    "/api/session/open",
+                    b'{"client_id":"' + (b"a" * 64) + b'"}',
+                    headers={"Content-Type": "application/json"},
+                )
+
+        self.assertEqual(status, 413)
+        self.assertIn("request_too_large", text)
 
     def test_health_topics_and_validation_errors(self):
         with tempfile.TemporaryDirectory() as temp_dir:

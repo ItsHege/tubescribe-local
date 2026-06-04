@@ -219,6 +219,38 @@ Agents can use tools and inspect results.
         self.assertEqual(library[0]["summary"], "Agents can use tools and inspect results.")
         self.assertEqual(library[0]["duration_seconds"], 12)
 
+    def test_library_entries_drop_unsafe_source_urls(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "outputs"
+            source_dir = output_dir / "ai"
+            source_dir.mkdir(parents=True)
+            markdown_path = source_dir / "unsafe-url_TEST_en_transcript.md"
+            markdown_path.write_text(
+                """---
+title: "Unsafe URL"
+url: "javascript:alert(1)"
+video_id: "TEST"
+language: "en"
+topic: "ai/agents"
+---
+
+# Unsafe URL
+
+## Transcript
+
+Caption text.
+""",
+                encoding="utf-8",
+            )
+            settings_path = Path(temp_dir) / "local_settings.json"
+            settings_path.write_text(json.dumps({"output_dir": str(output_dir)}), encoding="utf-8")
+
+            with patch.object(app, "LOCAL_SETTINGS_PATH", settings_path):
+                app.rebuild_library_index()
+                decorated = app.load_library_entries()
+
+        self.assertEqual(decorated[0]["url"], "")
+
     def test_topic_classification_schema_validator_rejects_bad_json(self):
         valid = app.parse_topic_classification_content(
             json.dumps(

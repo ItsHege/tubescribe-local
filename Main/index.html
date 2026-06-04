@@ -630,7 +630,7 @@
     <header class="topbar">
         <div class="topbar-title">
             <h1>TubeScribe Local</h1>
-            <span class="badge">v0.1.0 · local tool</span>
+            <span class="badge">v0.2.1 · local tool</span>
         </div>
         <div class="topbar-actions">
             <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle dark mode" title="Toggle theme (T)">🌙</button>
@@ -1699,6 +1699,18 @@
             recentRow.appendChild(card);
         });
     }
+    function safeExternalUrl(value) {
+        if (!value) { return ''; }
+        try {
+            var parsed = new URL(String(value), window.location.href);
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                return parsed.href;
+            }
+        } catch (e) {
+            return '';
+        }
+        return '';
+    }
     function openLibraryEntry(entry) {
         if (!entry || !entry.path) {
             toast('error', 'No file path on this entry');
@@ -1721,10 +1733,11 @@
                 document.getElementById('library-preview').classList.remove('is-hidden');
                 var src = document.getElementById('library-preview-source');
                 var sourceUrl = entry.url || entry.video_url || entry.source_url || '';
-                if (sourceUrl) {
-                    src.href = sourceUrl;
+                var safeSourceUrl = safeExternalUrl(sourceUrl);
+                if (safeSourceUrl) {
+                    src.href = safeSourceUrl;
                     src.classList.remove('is-hidden');
-                } else { src.classList.add('is-hidden'); }
+                } else { src.href = '#'; src.classList.add('is-hidden'); }
                 var dl = document.getElementById('library-preview-download');
                 if (dl) {
                     var mdHref = (entry.downloads && entry.downloads.md) || entry.download_url || data.download_url || '';

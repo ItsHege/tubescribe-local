@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.2.1 - 2026-06-04
+
+### Security
+
+- Hardened local static file serving so ignored runtime JSON files are not exposed through the HTTP fallback.
+- Rejected disallowed-origin POST requests before local API state changes are processed.
+- Added request body size limits for JSON API endpoints.
+- Sanitized transcript output filenames derived from `yt-dlp` metadata before sidecar files are written.
+- Restricted caption JSON fetching to HTTP/HTTPS URLs and added caption/sidecar size limits.
+- Sanitized Library source links so unsafe URL schemes are not returned or rendered.
+
+### Validation
+
+- Added regression tests for local file exposure, cross-origin POST rejection, request size limits, unsafe source URLs, output path sanitization, and caption input limits.
+- `python -m unittest discover -s tests`
+- `python -m py_compile app.py transcriber.py launch_tool.pyw`
+- `node --check static\app.js`
+
 ## v0.2.0 - 2026-05-31
 
 ### Added

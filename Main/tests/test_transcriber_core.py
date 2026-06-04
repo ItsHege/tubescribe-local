@@ -182,6 +182,67 @@ class TranscriberCoreTests(unittest.TestCase):
             self.assertEqual(len(library), 1)
             self.assertEqual(library[0]["path"], result["output_rel_path"])
 
+    def test_transcribe_url_sanitizes_video_id_before_writing_outputs(self):
+        info = self.make_info()
+        info["id"] = r"a\..\..\escape"
+        info["webpage_url"] = "https://www.youtube.com/watch?v=unsafe"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir).resolve()
+            with patch("transcriber.get_video_info", return_value=info), patch(
+                "transcriber.fetch_json", return_value=self.make_caption_json()
+            ):
+                result = transcriber.transcribe_url(
+                    "https://www.youtube.com/watch?v=unsafe",
+                    output_root,
+                )
+
+            for key in ("output_path", "txt_output_path", "json_output_path", "srt_output_path", "vtt_output_path"):
+                output_path = Path(result[key]).resolve()
+                output_path.relative_to(output_root)
+                self.assertTrue(output_path.exists())
+                self.assertNotIn("..", output_path.name)
+                self.assertNotIn("\\", output_path.name)
+
+    def test_fetch_json_rejects_non_http_caption_urls(self):
+        with self.assertRaises(transcriber.TranscriptionError) as raised:
+            transcriber.fetch_json("file:///tmp/caption.json3")
+
+        self.assertEqual(raised.exception.code, "invalid_caption_url")
+
+    def test_fetch_json_rejects_oversized_caption_body(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self, size=-1):
+                return b"a" * (transcriber.MAX_CAPTION_JSON_BYTES + 1)
+
+        with patch.object(transcriber, "MAX_CAPTION_JSON_BYTES", 8), patch(
+            "transcriber.urllib.request.urlopen", return_value=FakeResponse()
+        ):
+            with self.assertRaises(transcriber.TranscriptionError) as raised:
+                transcriber.fetch_json("https://captions.example/too-large.json3")
+
+        self.assertEqual(raised.exception.code, "subtitle_too_large")
+
+    def test_extract_segments_rejects_excessive_segment_count(self):
+        caption_json = {
+            "events": [
+                {"tStartMs": index * 1000, "segs": [{"utf8": f"Segment {index}"}]}
+                for index in range(3)
+            ]
+        }
+
+        with patch.object(transcriber, "MAX_CAPTION_SEGMENTS", 2):
+            with self.assertRaises(transcriber.TranscriptionError) as raised:
+                transcriber.extract_segments(caption_json)
+
+        self.assertEqual(raised.exception.code, "subtitle_too_large")
+
 
 if __name__ == "__main__":
     unittest.main()

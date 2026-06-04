@@ -2,7 +2,7 @@
 
 Local-first YouTube caption transcription tool that saves Markdown transcripts into a searchable knowledge library.
 
-Current version: `v0.1.0`
+Current version: `v0.2.1`
 
 The app fetches available YouTube subtitles or automatic captions through `yt-dlp`, writes Markdown as the primary artifact, creates TXT/JSON/SRT/VTT sidecar files, and maintains a local `library.json` index for agents and repeat use.
 

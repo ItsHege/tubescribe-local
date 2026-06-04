@@ -2,7 +2,7 @@
 
 A simple local web tool for fetching YouTube subtitles or automatic captions and saving them as a Markdown transcript. TXT, JSON, SRT, and VTT sidecar files are created next to the Markdown file.
 
-Current version: `v0.1.0`
+Current version: `v0.2.1`
 
 ## Start
 

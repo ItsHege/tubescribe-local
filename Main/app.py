@@ -42,6 +42,8 @@ HOST = "127.0.0.1"
 PORT = 8765
 LOCAL_CORS_HOSTS = {"localhost", "127.0.0.1", "::1"}
 TEXT_LIBRARY_EXTENSIONS = {".md", ".txt", ".json", ".srt", ".vtt"}
+STATIC_ALLOWED_PATHS = {"/", "/index.html", "/static/app.css", "/static/app.js"}
+MAX_JSON_BODY_BYTES = 2 * 1024 * 1024
 SESSION_TTL_SECONDS = 40
 SHUTDOWN_AFTER_EMPTY_SECONDS = 15
 DISABLE_IDLE_SHUTDOWN = os.environ.get("YTT_DISABLE_IDLE_SHUTDOWN", "").strip() == "1"
@@ -266,9 +268,17 @@ class AppHandler(SimpleHTTPRequestHandler):
             )
             return
 
-        super().do_GET()
+        if parsed_path.path in STATIC_ALLOWED_PATHS:
+            super().do_GET()
+            return
+
+        self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_POST(self):
+        if self.headers.get("Origin") and not self.get_allowed_cors_origin():
+            self.send_error(HTTPStatus.FORBIDDEN, "CORS origin is not allowed")
+            return
+
         if self.path == "/api/session/open":
             payload = self.read_json_body()
             if payload is None:
@@ -629,7 +639,30 @@ class AppHandler(SimpleHTTPRequestHandler):
         self.send_json(HTTPStatus.OK, {"ok": True, "result": result})
 
     def read_json_body(self) -> dict | None:
-        content_length = int(self.headers.get("Content-Length", "0"))
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.send_json(
+                HTTPStatus.BAD_REQUEST,
+                {
+                    "ok": False,
+                    "error_code": "invalid_request",
+                    "message": "The request is invalid. Reload the page and try again.",
+                },
+            )
+            return None
+
+        if content_length > MAX_JSON_BODY_BYTES:
+            self.send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {
+                    "ok": False,
+                    "error_code": "request_too_large",
+                    "message": "The request is too large. Reduce the input and try again.",
+                },
+            )
+            return None
+
         raw_body = self.rfile.read(content_length)
         if raw_body == b"":
             return {}
@@ -1453,6 +1486,17 @@ def sanitize_base_url(base_url: str | None) -> str:
     return str(base_url or "").strip().rstrip("/")
 
 
+def sanitize_source_url(url: str | None) -> str:
+    value = str(url or "").strip()
+    if not value:
+        return ""
+
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return value
+
+
 def sanitize_profile_id(profile_id: str | None) -> str:
     value = str(profile_id or "").strip()
     value = re.sub(r"[^A-Za-z0-9_-]+", "-", value).strip("-")
@@ -1828,7 +1872,7 @@ def build_rebuilt_library_entry(
         "schema_version": normalize_schema_version(pick("schema_version", LIBRARY_SCHEMA_VERSION)),
         "title": title,
         "channel": str(pick("channel", "")).strip(),
-        "url": str(pick("url", "")).strip(),
+        "url": sanitize_source_url(pick("url", "")),
         "video_id": str(pick("video_id", "")).strip(),
         "upload_date": str(pick("upload_date", "")).strip(),
         "duration_seconds": parse_number_or_default(pick("duration_seconds", 0), 0),
@@ -3271,6 +3315,7 @@ def topic_label(topic: str, custom_topics: list[dict] | None = None) -> str:
 
 def decorate_library_entry(entry: dict) -> dict:
     decorated = dict(entry)
+    decorated["url"] = sanitize_source_url(decorated.get("url", ""))
     downloads = {}
 
     path_fields = {

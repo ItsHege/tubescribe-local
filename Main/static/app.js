@@ -144,6 +144,23 @@
         return API_BASE + path;
     }
 
+    function safeExternalUrl(value) {
+        if (!value) {
+            return '';
+        }
+
+        try {
+            var parsed = new URL(String(value), window.location.href);
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                return parsed.href;
+            }
+        } catch (error) {
+            return '';
+        }
+
+        return '';
+    }
+
     function openedFromDirectFile() {
         return window.location.protocol === 'file:';
     }
@@ -1549,12 +1566,13 @@
     }
 
     function createSourceLink(entry) {
-        if (!entry || !entry.url) {
+        var sourceUrl = safeExternalUrl(entry && entry.url);
+        if (!sourceUrl) {
             return null;
         }
 
         var link = document.createElement('a');
-        link.href = entry.url;
+        link.href = sourceUrl;
         link.textContent = 'YouTube';
         link.className = 'secondary-button';
         link.target = '_blank';
@@ -1788,8 +1806,9 @@
             libraryPreviewDownload.href = getDownloadHref(entry, 'md') || '#';
             libraryPreviewDownload.setAttribute('download', '');
             if (libraryPreviewSource) {
-                if (entry.url) {
-                    libraryPreviewSource.href = entry.url;
+                var sourceUrl = safeExternalUrl(entry.url);
+                if (sourceUrl) {
+                    libraryPreviewSource.href = sourceUrl;
                     libraryPreviewSource.classList.remove('is-hidden');
                 } else {
                     libraryPreviewSource.href = '#';
